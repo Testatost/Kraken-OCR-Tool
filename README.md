@@ -1,0 +1,2 @@
+# OCR-Tool
+ verwendet Kraken
