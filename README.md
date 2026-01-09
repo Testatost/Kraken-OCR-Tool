@@ -60,7 +60,7 @@ python -m pip install kraken Pillow PySide6 torch
 
 ```bash
 git clone https://github.com/Testatost/Kraken-OCR-Tool.git
-cd kraken-ocr-gui
+cd Kraken-OCR-Tool
 ```
 
 ---
@@ -103,9 +103,9 @@ https://zenodo.org/communities/ocr_models/records?q&l=list&p=1&s=10&sort=newest
 
 ---
 
-## Selbstgetestete gut funktionierende Modelle
+## (persönliche) Empfehlungen:
 
-### Baseline-Segmentierungs-Modelle
+## Baseline-Segmentierungs-Modelle
 
 #### General segmentation model for print and handwriting
 Webseite: https://zenodo.org/records/14602569  
@@ -117,7 +117,7 @@ Download: https://zenodo.org/records/10783346/files/seg_news_1.0.mlmodel?downloa
 
 ---
 
-### Kraken-Erkennungs-Modelle
+## Kraken-Erkennungs-Modelle
 
 #### Fraktur model trained from enhanced Austrian Newspapers dataset
 Webseite: https://zenodo.org/records/7933402  
