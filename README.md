@@ -1,154 +1,97 @@
-# Kraken OCR GUI
+# KrakenOCR-Tool
 
-Eine minimalistische **GUI für Kraken OCR** auf Basis von **PySide6**.  
-Das Tool unterstützt Einzelbilder und Batch-Verarbeitung, Overlay-Visualisierung,
-Baseline- oder Legacy-Segmentierung sowie verschiedene Exportformate.
-
----
+KrakenOCR-Tool ist ein grafisches OCR-Tool auf Basis von **Kraken** und **PySide6** mit interaktiver Zeilenanzeige, Bounding-Box-Overlays und umfangreichen Exportfunktionen. Es richtet sich insbesondere an Digital-Humanities-Projekte, Archivarbeit und alle Anwendungsfälle, in denen strukturierte und nachvollziehbare OCR-Ergebnisse benötigt werden.
 
 ## Features
 
-- GUI (PySide6) für Kraken OCR
-- Einzelbild- und Batch-OCR (Ordner)
-- Legacy-Segmentierung (`nlbin + pageseg`)
-- Baseline-Segmentierung (`blla`, mit externem Segmentierungsmodell)
-- Overlay mit Bounding Boxes und Zeilennummern
-- Sprach-Postprocessing (auto / de / en / fr / la)
-- Tabellen-/Register-Erkennung (heuristisch)
-- Exportformate:
-  - TXT
-  - CSV
-  - JSON
+- OCR mit Kraken (Legacy- und Baseline-Segmentierung)
+- Interaktive Anzeige erkannter Zeilen
+- Klickbare Bounding-Boxen mit Zeilennummern
+- Mehrsprachige Post-Processing-Filter (heuristisch)
+- Heuristische Tabellen- und Register-Erkennung
+- Batch-Verarbeitung ganzer Ordner
+- Unterstützte Exportformate:
+  - Plain Text (.txt)
+  - CSV / JSON (optional tabellenbasiert)
   - ALTO XML
   - hOCR
-
----
+  - Bilder (.png, .jpg, .bmp) inkl. Overlays
+  - Durchsuchbares PDF (Bild + unsichtbarer Textlayer)
+- CPU-, CUDA- und experimentelle MPS-Unterstützung
 
 ## Voraussetzungen
 
-### System
+### Betriebssystem
 
-- Python **3.9 – 3.12**
-- Linux oder Windows
-- Optional:
-  - CUDA-fähige NVIDIA-GPU
-  - Apple Silicon (MPS)
+- Windows 10 / 11
+- Linux (getestet mit Fedora)
+- macOS (eingeschränkt, ohne CUDA)
 
----
+### Python
 
-## Installation der Abhängigkeiten
+- Empfohlen: Python 3.10 oder 3.11
+- Python 3.13 kann funktionieren, ist aber nicht garantiert
 
-### Linux (bash)
+    python --version
 
-```bash
-python3 -m pip install --upgrade pip
-python3 -m pip install kraken Pillow PySide6 torch
-```
+## Installation
 
----
+### Repository klonen
 
-### Windows (PowerShell oder CMD)
+    git clone https://github.com/<dein-user>/KrakenOCR-Tool.git
+    cd KrakenOCR-Tool
 
-```powershell
-python.exe -m pip install --upgrade pip
-```
-```
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-```
-```
-pip install pyside6 pillow kraken shapely lxml numpy scipy
-```
+### Virtuelle Umgebung erstellen
 
----
+    python -m venv .venv
 
-## Repository klonen
+Linux / macOS:
 
-```bash
-git clone https://github.com/Testatost/Kraken-OCR-Tool.git
-cd Kraken-OCR-Tool
-```
+    source .venv/bin/activate
 
----
+Windows (PowerShell):
+
+    .venv\Scripts\Activate.ps1
+
+### Abhängigkeiten installieren
+
+    pip install --upgrade pip
+    pip install pillow pyside6 reportlab torch kraken
+
+Hinweis: Für GPU-Beschleunigung muss `torch` passend zur installierten CUDA-Version installiert werden. Siehe https://pytorch.org/get-started/locally/
 
 ## Starten
 
-### Linux
+    python main.py
 
-```bash
-python3 main.py
-```
+Nach dem Start öffnet sich die grafische Oberfläche.
 
-### Windows
+## Kraken-Modelle
 
-```powershell
-python main.py
-```
+Das Tool benötigt mindestens ein Kraken-Recognition-Modell (z. B. `.mlmodel`, `.pt`, `.pth`). Optional kann ein Baseline-Segmentierungsmodell für `blla` verwendet werden. Die Modelle werden nicht mitgeliefert und müssen im Programm manuell ausgewählt werden.
 
----
+## Exportformate
 
-## Bedienung (Kurzfassung)
+- Text: .txt
+- Tabellen: .csv, .json
+- OCR-Formate: ALTO XML, hOCR
+- Bilder: .png, .jpg, .bmp
+- PDF: durchsuchbares PDF mit unsichtbarem Textlayer
 
-1. Bild oder Ordner auswählen
-2. Kraken **Recognition-Modell** auswählen
-3. Segmentierungsmodus wählen:
-   - **Legacy** (kein zusätzliches Modell nötig)
-   - **Baseline** (blla, Segmentierungsmodell nötig)
-4. Optional:
-   - Sprache setzen (bei multilingualen Modellen)
-   - Tabellenmodus aktivieren
-5. OCR starten
-6. Ergebnis exportieren
+## Build als Windows-EXE (optional)
 
----
+### Voraussetzungen
 
-# Kraken OCR-Tool
+- Windows
+- Python (gleiche Version wie beim Entwickeln)
+- PyInstaller
 
-**Fundquelle für Modelle:**  
-https://zenodo.org/communities/ocr_models/records?q&l=list&p=1&s=10&sort=newest
+    pip install pyinstaller
 
----
+### Build mit Spec-Datei
 
-## (persönliche) Empfehlungen:
+    pyinstaller KrakenOCR-Tool.spec --clean
 
-## Baseline-Segmentierungs-Modelle
+Die erzeugte EXE befindet sich anschließend unter:
 
-#### General segmentation model for print and handwriting
-Webseite: https://zenodo.org/records/14602569  
-Download: https://zenodo.org/records/14602569/files/blla.mlmodel?download=1
-
-#### Kraken segmentation model for two-column prints
-Webseite: https://zenodo.org/records/10783346  
-Download: https://zenodo.org/records/10783346/files/seg_news_1.0.mlmodel?download=1
-
----
-
-## Kraken-Erkennungs-Modelle
-
-#### Fraktur model trained from enhanced Austrian Newspapers dataset
-Webseite: https://zenodo.org/records/7933402  
-Download: https://zenodo.org/records/7933402/files/austriannewspapers.mlmodel?download=1
-
-#### CCATMuS-Print [Large]
-Webseite: https://zenodo.org/records/10592716  
-Download: https://zenodo.org/records/10592716/files/catmus-print-fondue-large.mlmodel?download=1
-
-#### OCR model for German prints trained from several datasets
-Webseite: https://zenodo.org/records/10519596  
-Download: https://zenodo.org/records/10519596/files/german_print.mlmodel?download=1
-
-#### HTR model for German manuscripts trained from several datasets
-Webseite: https://zenodo.org/records/7933463  
-Download: https://zenodo.org/records/7933463/files/german_handwriting.mlmodel?download=1
-
-#### FoNDUE-GD
-Webseite: https://zenodo.org/records/14399779  
-Download: https://zenodo.org/records/14399779/files/FoNDUE-GD_v2_de.mlmodel?download=1
-
----
-
-## Hinweise
-
-- Die Sprachwahl wirkt **nur als Post-Processing** (Zeichenfilter),
-  nicht als echtes Sprachmodell.
-- Tabellen-/Register-Erkennung ist **heuristisch** und nicht perfekt.
-- Für große Batch-Jobs wird eine GPU empfohlen.
+    dist/KrakenOCR-Tool/
