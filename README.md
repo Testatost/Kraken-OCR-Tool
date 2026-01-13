@@ -1,5 +1,28 @@
 # KrakenOCR-Tool
 
+## Inhaltsverzeichnis
+
+- [KrakenOCR-Tool](#krakenocr-tool)
+  - [Features](#features)
+  - [Voraussetzungen](#voraussetzungen)
+    - [Betriebssystem](#betriebssystem)
+    - [Python](#python)
+  - [Installation](#installation)
+    - [Repository klonen](#repository-klonen)
+    - [Virtuelle Umgebung erstellen](#virtuelle-umgebung-erstellen)
+    - [Abhängigkeiten installieren](#abhängigkeiten-installieren)
+  - [Starten](#starten)
+  - [Kraken-Modelle](#kraken-modelle)
+  - [Exportformate](#exportformate)
+  - [Build als Windows-EXE (optional)](#build-als-windows-exe-optional)
+    - [Voraussetzungen (Build)](#voraussetzungen-build)
+    - [Build mit Spec-Datei](#build-mit-spec-datei)
+  - [Kraken Modelle](#kraken-modelle)
+    - [Baseline-Segmentierungs-Modelle](#baseline-segmentierungs-modelle)
+    - [Kraken-Erkennungs-Modelle](#kraken-erkennungs-modelle)
+
+---
+
 KrakenOCR-Tool ist ein grafisches OCR-Tool auf Basis von **Kraken** und **PySide6** mit interaktiver Zeilenanzeige, Bounding-Box-Overlays und umfangreichen Exportfunktionen. Es richtet sich insbesondere an Digital-Humanities-Projekte, Archivarbeit und alle Anwendungsfälle, in denen strukturierte und nachvollziehbare OCR-Ergebnisse benötigt werden.
 
 ## Features
@@ -80,7 +103,7 @@ Das Tool benötigt mindestens ein Kraken-Recognition-Modell (z. B. `.mlmodel`, `
 
 ## Build als Windows-EXE (optional)
 
-### Voraussetzungen
+### Voraussetzungen (Build)
 
 - Windows
 - Python (gleiche Version wie beim Entwickeln)
@@ -95,3 +118,57 @@ Das Tool benötigt mindestens ein Kraken-Recognition-Modell (z. B. `.mlmodel`, `
 Die erzeugte EXE befindet sich anschließend unter:
 
     dist/KrakenOCR-Tool/
+
+---
+
+# Kraken Modelle
+
+**Fundquelle für Modelle:**  
+https://zenodo.org/communities/ocr_models/records?q&l=list&p=1&s=10&sort=newest
+
+---
+
+## (persönliche) Empfehlungen
+
+## Baseline-Segmentierungs-Modelle
+
+#### General segmentation model for print and handwriting
+
+Webseite: https://zenodo.org/records/14602569  
+Download: https://zenodo.org/records/14602569/files/blla.mlmodel?download=1
+
+#### Kraken segmentation model for two-column prints
+
+Webseite: https://zenodo.org/records/10783346  
+Download: https://zenodo.org/records/10783346/files/seg_news_1.0.mlmodel?download=1
+
+---
+
+## Kraken-Erkennungs-Modelle
+
+#### Fraktur model trained from enhanced Austrian Newspapers dataset
+
+Webseite: https://zenodo.org/records/7933402  
+Download: https://zenodo.org/records/7933402/files/austriannewspapers.mlmodel?download=1
+
+#### CCATMuS-Print [Large]
+
+Webseite: https://zenodo.org/records/10592716  
+Download: https://zenodo.org/records/10592716/files/catmus-print-fondue-large.mlmodel?download=1
+
+#### OCR model for German prints trained from several datasets
+
+Webseite: https://zenodo.org/records/10519596  
+Download: https://zenodo.org/records/10519596/files/german_print.mlmodel?download=1
+
+#### HTR model for German manuscripts trained from several datasets
+
+Webseite: https://zenodo.org/records/7933463  
+Download: https://zenodo.org/records/7933463/files/german_handwriting.mlmodel?download=1
+
+#### FoNDUE-GD
+
+Webseite: https://zenodo.org/records/14399779  
+Download: https://zenodo.org/records/14399779/files/FoNDUE-GD_v2_de.mlmodel?download=1
+
+---
