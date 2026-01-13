@@ -13,8 +13,11 @@ warnings.filterwarnings(
     category=UserWarning
 )
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from PIL.ImageQt import ImageQt
+
+from reportlab.pdfgen import canvas as pdf_canvas
+from reportlab.lib.utils import ImageReader
 
 from PySide6.QtCore import Qt, QThread, Signal, QRectF
 from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QFont
@@ -250,6 +253,182 @@ def record_bbox(r: Any) -> Optional[Tuple[int, int, int, int]]:
 
     return None
 
+# -----------------------------
+# Column-aware reading order
+# -----------------------------
+def split_into_columns(records, x_gap_ratio=0.08):
+    """
+    Gruppiert OCR-Records in Spalten anhand der x-Position.
+    """
+    items = []
+    for r in records:
+        bb = record_bbox(r)
+        if bb:
+            items.append((r, bb))
+
+    if not items:
+        return [records]
+
+    xs = [bb[0] for _, bb in items]
+    page_width = max(xs) - min(xs)
+    threshold = max(30, int(page_width * x_gap_ratio))
+
+    columns = []
+    for r, bb in sorted(items, key=lambda x: x[1][0]):
+        x0 = bb[0]
+        placed = False
+        for col in columns:
+            if abs(col["x"] - x0) <= threshold:
+                col["items"].append(r)
+                col["x"] = int(col["x"] * 0.8 + x0 * 0.2)
+                placed = True
+                break
+        if not placed:
+            columns.append({"x": x0, "items": [r]})
+
+    return [c["items"] for c in sorted(columns, key=lambda c: c["x"])]
+
+def sort_records_reading_order(records, image_width: int):
+    """
+    Robust 2-Spalten-Lesereihenfolge:
+    1) Header: alles oberhalb Body-Top
+    2) linke Spalte komplett (oben->unten)
+    3) rechte Spalte komplett (oben->unten)
+    4) Footer: alles unterhalb Body-Bottom
+    """
+
+    # ---- helpers ----
+    def q(values, p):
+        # p in [0..1], simple quantile ohne numpy
+        if not values:
+            return None
+        vals = sorted(values)
+        if len(vals) == 1:
+            return vals[0]
+        k = (len(vals) - 1) * p
+        f = int(k)
+        c = min(f + 1, len(vals) - 1)
+        if f == c:
+            return vals[f]
+        return vals[f] + (vals[c] - vals[f]) * (k - f)
+
+    def bb_center_x(bb):
+        x0, y0, x1, y1 = bb
+        return (x0 + x1) / 2.0
+
+    def bb_h(bb):
+        return bb[3] - bb[1]
+
+    def bb_w(bb):
+        return bb[2] - bb[0]
+
+    def is_fullwidth(bb):
+        return bb_w(bb) >= int(image_width * 0.75)
+
+    # ---- collect items ----
+    items = []
+    for r in records:
+        bb = record_bbox(r)
+        if bb:
+            items.append((r, bb))
+
+    if not items:
+        return list(records)
+
+    # ---- filter "usable text-like" boxes for body/columns ----
+    # Deko/Trennlinien sind oft extrem niedrig -> raus
+    MIN_H = 14  # ggf. 12..18 testen
+    body_candidates = [(r, bb) for (r, bb) in items if bb_h(bb) >= MIN_H and not is_fullwidth(bb)]
+
+    # Fallback: wenn zu wenig Kandidaten, einfach y,x
+    if len(body_candidates) < 6:
+        return [r for r, _ in sorted(items, key=lambda x: (x[1][1], x[1][0]))]
+
+    # ---- 1D kmeans (k=2) auf x_center ----
+    xs = [bb_center_x(bb) for _, bb in body_candidates]
+    c1 = q(xs, 0.25)
+    c2 = q(xs, 0.75)
+    if c1 is None or c2 is None:
+        return [r for r, _ in sorted(items, key=lambda x: (x[1][1], x[1][0]))]
+
+    # wenige Iterationen reichen
+    for _ in range(8):
+        g1, g2 = [], []
+        for x in xs:
+            (g1 if abs(x - c1) <= abs(x - c2) else g2).append(x)
+        if g1:
+            c1 = sum(g1) / len(g1)
+        if g2:
+            c2 = sum(g2) / len(g2)
+
+    # Sortiere: links, rechts
+    if c1 > c2:
+        c1, c2 = c2, c1
+
+    # Wenn die Zentren nicht wirklich getrennt sind -> keine echten 2 Spalten
+    if abs(c2 - c1) < image_width * 0.18:
+        return [r for r, _ in sorted(items, key=lambda x: (x[1][1], x[1][0]))]
+
+    # ---- Body-Top / Body-Bottom robust über Quantile ----
+    ys_top = [bb[1] for _, bb in body_candidates]
+    ys_bot = [bb[3] for _, bb in body_candidates]
+    body_top = q(ys_top, 0.08)   # 8%-Quantil (Outlier oben raus)
+    body_bot = q(ys_bot, 0.92)   # 92%-Quantil (Outlier unten raus)
+
+    if body_top is None or body_bot is None:
+        return [r for r, _ in sorted(items, key=lambda x: (x[1][1], x[1][0]))]
+
+    # Puffer, damit Header/Footer stabil sind
+    MARGIN_Y = 10
+
+    header = []
+    footer = []
+    midband = []  # alles zwischen top/bottom -> Spalten
+
+    for r, bb in items:
+        if bb_h(bb) < MIN_H:
+            # extrem flache Boxes (Deko/Striche) lassen wir trotzdem in midband,
+            # aber sie sollen nicht die Headerlogik kaputt machen -> behandel sie wie midband
+            midband.append((r, bb))
+            continue
+
+        if bb[3] < (body_top - MARGIN_Y):
+            header.append((r, bb))
+        elif bb[1] > (body_bot + MARGIN_Y):
+            footer.append((r, bb))
+        else:
+            midband.append((r, bb))
+
+    header_sorted = sorted(header, key=lambda x: (x[1][1], x[1][0]))
+    footer_sorted = sorted(footer, key=lambda x: (x[1][1], x[1][0]))
+
+    # ---- Zuordnung zu linker/rechter Spalte über x_center (nicht x0!) ----
+    left_col = []
+    right_col = []
+
+    for r, bb in midband:
+        # fullwidth im Midband (z.B. Überschriften innerhalb Body) nach y,x einsortieren:
+        if is_fullwidth(bb):
+            # fullwidth behandeln wir wie "linke Spalte", bleibt aber korrekt nach y sortiert
+            left_col.append((r, bb))
+            continue
+
+        x = bb_center_x(bb)
+        if abs(x - c1) <= abs(x - c2):
+            left_col.append((r, bb))
+        else:
+            right_col.append((r, bb))
+
+    left_sorted = sorted(left_col, key=lambda x: (x[1][1], x[1][0]))
+    right_sorted = sorted(right_col, key=lambda x: (x[1][1], x[1][0]))
+
+    ordered = [r for r, _ in header_sorted] + \
+              [r for r, _ in left_sorted] + \
+              [r for r, _ in right_sorted] + \
+              [r for r, _ in footer_sorted]
+
+    return ordered
+
 
 def clamp_bbox(bb: Tuple[int, int, int, int], w: int, h: int) -> Optional[Tuple[int, int, int, int]]:
     x0, y0, x1, y1 = bb
@@ -283,29 +462,47 @@ def cluster_columns(records: List[RecordView], x_threshold: int = 45) -> List[Li
     cols.sort(key=lambda c: c["x"])
     return [c["items"] for c in cols]
 
+def is_same_visual_row(a: RecordView, b: RecordView, page_width: int) -> bool:
+    if not a.bbox or not b.bbox:
+        return False
 
-def group_rows_by_y(records: List[RecordView], y_threshold: int = 22) -> List[List[RecordView]]:
+    ax0, ay0, ax1, ay1 = a.bbox
+    bx0, by0, bx1, by1 = b.bbox
+
+    # vertikal nah genug
+    if abs(ay0 - by0) > 12:
+        return False
+
+    mid = page_width // 2
+
+    # links vs rechts → NICHT gleiche Zeile
+    if (ax1 < mid and bx0 > mid) or (bx1 < mid and ax0 > mid):
+        return False
+
+    return True
+
+
+def group_rows_by_y(records: List[RecordView], page_width: int, y_threshold: int = 12):
     rows: List[List[RecordView]] = []
-    for r in sorted(records, key=lambda rv: (rv.bbox[1] if rv.bbox else 0, rv.bbox[0] if rv.bbox else 0)):
-        if not r.bbox:
-            continue
-        y0 = r.bbox[1]
+
+    for r in sorted(records, key=lambda rv: (rv.bbox[1], rv.bbox[0])):
         placed = False
         for row in rows:
-            ry0 = row[0].bbox[1]
-            if abs(ry0 - y0) <= y_threshold:
+            if is_same_visual_row(row[0], r, page_width):
                 row.append(r)
                 placed = True
                 break
         if not placed:
             rows.append([r])
+
     for row in rows:
-        row.sort(key=lambda rv: rv.bbox[0] if rv.bbox else 0)
+        row.sort(key=lambda rv: rv.bbox[0])
+
     return rows
 
+def table_to_rows(records: List[RecordView], page_width: int) -> List[List[str]]:
+    rows = group_rows_by_y(records, page_width)
 
-def table_to_rows(records: List[RecordView]) -> List[List[str]]:
-    rows = group_rows_by_y(records)
     cols = cluster_columns(records)
 
     col_x = []
@@ -339,6 +536,40 @@ def table_to_rows(records: List[RecordView]) -> List[List[str]]:
         grid.append(line)
     return grid
 
+def table_to_rows_two_columns(records: List[RecordView], page_width: int) -> List[List[str]]:
+    """
+    Erzwingt exakt 2 Spalten anhand Seitenmitte.
+    Verhindert "3. Spalte" durch Ausreißer.
+    """
+    mid = page_width // 2
+    rows = group_rows_by_y(records, page_width)
+
+    grid: List[List[str]] = []
+    for row in rows:
+        left_parts = []
+        right_parts = []
+        for rv in row:
+            if not rv.bbox:
+                continue
+            x0 = rv.bbox[0]
+            if x0 < mid:
+                left_parts.append(rv.text)
+            else:
+                right_parts.append(rv.text)
+
+        grid.append([" ".join(left_parts).strip(), " ".join(right_parts).strip()])
+
+    # Optional: sehr kurze "Restzeilen" an die vorige Zeile anhängen (Fortsatz)
+    merged: List[List[str]] = []
+    for r in grid:
+        if merged:
+            # Wenn linke Spalte leer und rechts nur ein kurzes Fragment -> an vorige rechte Spalte hängen
+            if (not r[0]) and r[1] and len(r[1]) <= 20 and (not merged[-1][1].endswith(".")):
+                merged[-1][1] = (merged[-1][1] + " " + r[1]).strip()
+                continue
+        merged.append(r)
+
+    return merged
 
 # -----------------------------
 # Graphics Items for interaction
@@ -582,19 +813,63 @@ class OCRWorker(QThread):
         self.log.emit("OCR läuft (Kraken rpred)…")
 
         kr_records = list(rpred.rpred(self._rec_model, im, seg))
-        kr_sorted = sorted(kr_records, key=record_sort_key)
+        kr_sorted = sort_records_reading_order(kr_records, im.size[0])
 
-        record_views: List[RecordView] = []
-        lines: List[str] = []
+        # --- FIX: erste zweispaltige Registerzeile gezielt splitten ---
+        page_w, page_h = im.size
+        mid = page_w // 2
 
-        for idx, r in enumerate(kr_sorted):
+        def is_first_double_column_line(bb: Tuple[int, int, int, int]) -> bool:
+            x0, y0, x1, y1 = bb
+            # "sehr breit" und deutlich über die Seitenmitte hinaus
+            # (die Faktoren sind bewusst konservativ, damit es nur diesen Sonderfall trifft)
+            return (x0 < int(mid * 0.60)) and (x1 > int(mid * 1.40))
+
+
+        record_views = []
+        lines = []
+        out_idx = 0
+        page_w, page_h = im.size
+        split_done = False
+
+        split_done = False
+
+        for r in kr_sorted:
             pred = getattr(r, "prediction", None)
             if pred is None:
                 continue
+
             txt = normalize_text_by_language(str(pred), self.job.language)
             bb = record_bbox(r)
-            record_views.append(RecordView(idx=idx, text=txt, bbox=bb))
+
+            if bb:
+                x0, y0, x1, y1 = bb
+                w = x1 - x0
+
+                # --- 2) Normaler Wide-Line-Split ---
+                if w > int(page_w * 0.80):
+                    import re
+                    parts = re.split(r"\s{2,}", txt, maxsplit=1)
+                    if len(parts) == 2:
+                        left_txt, right_txt = map(str.strip, parts)
+                        mid = page_w // 2
+                        left_bb = clamp_bbox((0, y0, mid, y1), page_w, page_h)
+                        right_bb = clamp_bbox((mid, y0, page_w, y1), page_w, page_h)
+
+                        if left_bb:
+                            record_views.append(RecordView(out_idx, left_txt, left_bb))
+                            lines.append(left_txt)
+                            out_idx += 1
+                        if right_bb:
+                            record_views.append(RecordView(out_idx, right_txt, right_bb))
+                            lines.append(right_txt)
+                            out_idx += 1
+                        continue
+
+            # --- Normalfall ---
+            record_views.append(RecordView(idx=out_idx, text=txt, bbox=bb))
             lines.append(txt)
+            out_idx += 1
 
         text = "\n".join(lines).strip()
         return text, kr_sorted, im, record_views
@@ -675,7 +950,8 @@ class OCRWorker(QThread):
 
         if fmt in ("csv", "json"):
             if table_mode:
-                grid = table_to_rows(record_views)
+                grid = table_to_rows(record_views, pil_image.size[0])
+
             else:
                 grid = [[rv.text] for rv in record_views]
 
@@ -715,7 +991,7 @@ class OCRWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Kraken OCR – GUI (Fedora/PySide6)")
+        self.setWindowTitle("Kraken OCR – Tool")
         self.resize(1500, 900)
 
         self.worker: Optional[OCRWorker] = None
@@ -832,12 +1108,22 @@ class MainWindow(QMainWindow):
         self.chk_overlay.setChecked(True)
         self.chk_overlay.stateChanged.connect(self._on_overlay_toggled)
 
+        self.chk_img_overlay_boxes = QCheckBox("Boxen im Bildexport")
+        self.chk_img_overlay_boxes.setChecked(True)
+
+        self.chk_img_overlay_labels = QCheckBox("Nummern im Bildexport")
+        self.chk_img_overlay_labels.setChecked(True)
+
         self.export_format = QComboBox()
         self.export_format.addItem("Plain Text (.txt)", userData="txt")
         self.export_format.addItem("CSV (.csv)", userData="csv")
         self.export_format.addItem("JSON (.json)", userData="json")
         self.export_format.addItem("ALTO XML (.xml)", userData="alto")
         self.export_format.addItem("hOCR (.html)", userData="hocr")
+        self.export_format.addItem("Bild PNG (.png)", userData="png")
+        self.export_format.addItem("Bild JPG (.jpg)", userData="jpg")
+        self.export_format.addItem("Bild BMP (.bmp)", userData="bmp")
+        self.export_format.addItem("PDF (durchsuchbar)", userData="pdf")
 
         self.btn_run = QPushButton("OCR starten")
         self.btn_run.clicked.connect(self.run_ocr)
@@ -866,6 +1152,9 @@ class MainWindow(QMainWindow):
         form.addRow(self.btn_run)
         form.addRow(self.progress)
         form.addRow(self.btn_export_single)
+        form.addRow(QLabel("Bildexport-Optionen:"))
+        form.addRow(self.chk_img_overlay_boxes)
+        form.addRow(self.chk_img_overlay_labels)
 
         controls.setLayout(form)
 
@@ -1168,80 +1457,213 @@ class MainWindow(QMainWindow):
                 self.list_lines.setCurrentRow(row)
                 break
 
-    def export_single(self):
-        if self.pil_image is None:
-            return self._err("Kein OCR-Ergebnis vorhanden.")
+    def export_current_result(self, path: str, fmt: str):
+        if not self.pil_image or not self.record_views:
+            raise ValueError("Kein OCR-Ergebnis vorhanden.")
 
-        fmt = self.export_format.currentData()
-        default_dir = self.current_export_dir or os.path.dirname(self.current_image_path or "") or os.getcwd()
+        fmt = fmt.lower()
 
         if fmt == "txt":
-            path, _ = QFileDialog.getSaveFileName(self, "Speichern", default_dir, "Text (*.txt)")
-            if not path:
-                return
-            if not path.lower().endswith(".txt"):
-                path += ".txt"
             with open(path, "w", encoding="utf-8") as f:
                 f.write(self.full_text.toPlainText() + "\n")
-            self._log(f"Gespeichert: {path}")
             return
 
         if fmt in ("csv", "json"):
             if self.chk_table_mode.isChecked():
-                grid = table_to_rows(self.record_views)
+                grid = table_to_rows(self.record_views, self.pil_image.size[0])
             else:
                 grid = [[rv.text] for rv in self.record_views]
 
             if fmt == "csv":
-                path, _ = QFileDialog.getSaveFileName(self, "Speichern", default_dir, "CSV (*.csv)")
-                if not path:
-                    return
-                if not path.lower().endswith(".csv"):
-                    path += ".csv"
                 with open(path, "w", newline="", encoding="utf-8") as f:
                     w = csv.writer(f)
                     for row in grid:
                         w.writerow(row)
-                self._log(f"Gespeichert: {path}")
                 return
 
-            path, _ = QFileDialog.getSaveFileName(self, "Speichern", default_dir, "JSON (*.json)")
-            if not path:
-                return
-            if not path.lower().endswith(".json"):
-                path += ".json"
             payload = {
                 "source": self.current_image_path,
                 "rows": grid
             }
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
-            self._log(f"Gespeichert: {path}")
             return
 
         if fmt in ("alto", "hocr"):
-            if not self.kraken_records:
-                return self._err("Kein Kraken-Export möglich: Es sind keine Kraken-Records vorhanden.")
-            ext = ".xml" if fmt == "alto" else ".html"
-            flt = "XML (*.xml)" if fmt == "alto" else "HTML (*.html)"
-            path, _ = QFileDialog.getSaveFileName(self, "Speichern", default_dir, flt)
-            if not path:
-                return
-            if not path.lower().endswith(ext):
-                path += ext
-
             rendered = serialization.serialize(
                 self.kraken_records,
-                image_name=os.path.basename(self.current_image_path) if self.current_image_path else None,
+                image_name=os.path.basename(self.current_image_path),
                 image_size=self.pil_image.size,
                 template=fmt
             )
             with open(path, "w", encoding="utf-8") as f:
                 f.write(rendered)
-            self._log(f"Gespeichert: {path}")
             return
 
-        self._err(f"Unbekanntes Format: {fmt}")
+        raise ValueError(f"Unbekanntes Format: {fmt}")
+
+    def render_image_with_overlays(self, with_boxes: bool, with_labels: bool) -> Image.Image:
+        img = self.pil_image.convert("RGB").copy()
+        draw = ImageDraw.Draw(img)
+
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
+        except Exception:
+            font = ImageFont.load_default()
+
+        for rv in self.record_views:
+            if not rv.bbox:
+                continue
+
+            x0, y0, x1, y1 = rv.bbox
+
+            if with_boxes:
+                draw.rectangle(
+                    [x0, y0, x1, y1],
+                    outline=(255, 0, 0),
+                    width=2
+                )
+
+            if with_labels:
+                draw.text(
+                    (x0, max(0, y0 - 18)),
+                    str(rv.idx + 1),
+                    fill=(0, 0, 0),
+                    font=font
+                )
+
+        return img
+
+    from reportlab.pdfgen import canvas as pdf_canvas
+    from reportlab.lib.utils import ImageReader
+
+    def render_searchable_pdf(self, path: str):
+        if not self.pil_image or not self.record_views:
+            raise ValueError("Kein OCR-Ergebnis vorhanden.")
+
+        img = self.pil_image
+        width, height = img.size  # Pixel = PDF-Points (1:1)
+
+        c = pdf_canvas.Canvas(path, pagesize=(width, height))
+
+        # --- 1) Bild als Hintergrund ---
+        c.drawImage(
+            ImageReader(img),
+            0, 0,
+            width=width,
+            height=height
+        )
+
+        # --- 2) Unsichtbaren Textlayer ---
+        c.setFillColorRGB(0, 0, 0)
+        c.setFont("Helvetica", 10)
+
+        for rv in self.record_views:
+            if not rv.bbox or not rv.text.strip():
+                continue
+
+            x0, y0, x1, y1 = rv.bbox
+            text = rv.text
+
+            box_w = max(1, x1 - x0)
+            box_h = max(1, y1 - y0)
+
+            # PDF-Koordinaten: Ursprung unten links
+            pdf_y = height - y1
+
+            # Fontgröße grob an Boxhöhe anpassen
+            font_size = max(6, min(20, box_h * 0.8))
+            c.setFont("Helvetica", font_size)
+
+            # Text horizontal skalieren, damit er exakt in die Box passt
+            text_width = c.stringWidth(text, "Helvetica", font_size)
+            if text_width > 0:
+                scale_x = box_w / text_width
+            else:
+                scale_x = 1.0
+
+            c.saveState()
+            c.translate(x0, pdf_y)
+            c.scale(scale_x, 1)
+            c.setFillAlpha(0)  # 👈 UNSICHTBAR, aber selektierbar
+            c.drawString(0, 0, text)
+            c.restoreState()
+
+        c.showPage()
+        c.save()
+
+    def export_single(self):
+        if not self.pil_image:
+            return self._err("Kein OCR-Ergebnis vorhanden.")
+
+        fmt = self.export_format.currentData()
+        default_dir = self.current_export_dir or os.path.dirname(self.current_image_path or "")
+
+        if fmt == "pdf":
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "PDF exportieren",
+                default_dir,
+                "PDF (*.pdf)"
+            )
+            if not path:
+                return
+
+            if not path.lower().endswith(".pdf"):
+                path += ".pdf"
+
+            try:
+                self.render_searchable_pdf(path)
+                self._log(f"PDF exportiert: {path}")
+            except Exception as e:
+                self._err(str(e))
+            return
+
+        if fmt in ("png", "jpg", "bmp"):
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Bild exportieren",
+                default_dir,
+                "Images (*.png *.jpg *.bmp)"
+            )
+            if not path:
+                return
+
+            # 👉 Dateiendung automatisch ergänzen
+            ext = "." + fmt
+            if not path.lower().endswith(ext):
+                path += ext
+
+            img = self.render_image_with_overlays(
+                with_boxes=self.chk_img_overlay_boxes.isChecked(),
+                with_labels=self.chk_img_overlay_labels.isChecked()
+            )
+            img.save(path)
+            self._log(f"Bild exportiert: {path}")
+            return
+
+        ext_map = {
+            "txt": "Text (*.txt)",
+            "csv": "CSV (*.csv)",
+            "json": "JSON (*.json)",
+            "alto": "XML (*.xml)",
+            "hocr": "HTML (*.html)",
+        }
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exportieren",
+            default_dir,
+            ext_map.get(fmt, "All files (*.*)")
+        )
+        if not path:
+            return
+
+        try:
+            self.export_current_result(path, fmt)
+            self._log(f"Gespeichert: {path}")
+        except Exception as e:
+            self._err(str(e))
 
 
 def main():
