@@ -1,6 +1,7 @@
-# -*- coding: utf-8 -*-
 import os
 import sys
+import math
+import statistics
 import json
 import csv
 import warnings
@@ -9,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Any, Tuple, Dict, Callable
 
 # GUI Framework
-from PySide6.QtCore import Qt, QThread, Signal, QRectF, QUrl, QTimer, QSize, QPointF, QPoint
+from PySide6.QtCore import Qt, QThread, Signal, QRectF, QUrl, QTimer, QSize, QPointF, QPoint, QDateTime, QLocale
 from PySide6.QtGui import (
     QPixmap, QPen, QBrush, QColor, QFont, QDragEnterEvent, QDropEvent, QAction,
     QKeySequence, QActionGroup, QIcon, QPalette
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsSimpleTextItem, QSplitter, QStatusBar,
     QMenu, QTableWidget, QTableWidgetItem, QHeaderView, QToolBar,
     QAbstractItemView, QInputDialog, QDialog, QDialogButtonBox, QRadioButton,
-    QListWidget as QListWidget2, QSpinBox, QFormLayout
+    QListWidget as QListWidget2, QSpinBox, QFormLayout, QPlainTextEdit, QToolButton,
 )
 
 # PySide object validity helper
@@ -35,7 +36,7 @@ from reportlab.lib.utils import ImageReader
 
 # Kraken & ML
 warnings.filterwarnings("ignore", message="Using legacy polygon extractor*", category=UserWarning)
-from kraken import blla, rpred, serialization
+from kraken import blla, rpred, serialization, pageseg
 from kraken.lib import models, vgsl
 import torch
 
@@ -101,6 +102,14 @@ TRANSLATIONS = {
         "menu_reading": "Leserichtung",
         "menu_appearance": "Erscheinungsbild",
 
+        "log_toggle_show": "Log",
+        "log_toggle_hide": "Log",
+        "menu_export_log": "Log als .txt exportieren...",
+        "dlg_save_log": "Log speichern",
+        "dlg_filter_txt": "Text (*.txt)",
+        "log_started": "Programm gestartet.",
+        "log_queue_cleared": "Queue geleert.",
+
         "lang_de": "Deutsch",
         "lang_en": "English",
         "lang_fr": "Français",
@@ -121,15 +130,15 @@ TRANSLATIONS = {
         "msg_device_rocm": "ROCm",
         "msg_device_mps": "MPS",
 
-        "act_add_files": "Dateien zum Wartebereich hinzufügen...",
-        "act_download_model": "Modell herunterladen...",
+        "act_add_files": "Dateien laden...",
+        "act_download_model": "Modell herunterladen (Zenodo)",
         "act_delete": "Löschen",
         "act_rename": "Umbenennen...",
-        "act_clear_queue": "Wartebereich löschen",
-        "act_start_ocr": "OCR starten",
-        "act_stop_ocr": "OCR stoppen",
-        "act_re_ocr": "Ergebnis zurücksetzen & OCR wiederholen",
-        "act_re_ocr_tip": "Löscht Ergebnisse der aktuellen Datei und startet OCR erneut",
+        "act_clear_queue": "Queue leeren",
+        "act_start_ocr": "Start",
+        "act_stop_ocr": "Stopp",
+        "act_re_ocr": "Wiederholen",
+        "act_re_ocr_tip": "Ausgewählte Datei(en) erneut verarbeiten",
         "act_overlay_show": "Overlay-Boxen anzeigen",
 
         "status_ready": "Bereit.",
@@ -143,8 +152,8 @@ TRANSLATIONS = {
         "col_file": "Datei",
         "col_status": "Status",
 
-        "drop_hint": "Anklicken um Datei hinzuzufügen",
-        "queue_drop_hint": "Datei hier ablegen",
+        "drop_hint": "Datei(en) hierher ziehen und ablegen",
+        "queue_drop_hint": "Datei(en) hierher ziehen und ablegen",
 
         "info_title": "Information",
         "warn_title": "Warnung",
@@ -154,7 +163,7 @@ TRANSLATIONS = {
         "theme_dark": "Dunkel",
 
         "warn_queue_empty": "Wartebereich ist leer oder alle Elemente wurden verarbeitet.",
-        "warn_select_done": "Bitte wählen Sie ein fertiges Element zum Exportieren.",
+        "warn_select_done": "Keine Datei(en) für erneutes OCRn geladen.",
         "warn_need_rec": "Bitte wählen Sie zuerst ein Format-Modell (Recognition) aus.",
         "warn_need_seg": "Bitte wählen Sie zuerst ein Baseline-Modell aus.",
 
@@ -223,6 +232,17 @@ TRANSLATIONS = {
 
         "new_line_from_box_title": "Neue Zeile",
         "new_line_from_box_label": "Text für die neue Zeile (optional):",
+
+        "log_added_files": "{} Datei(en) zur Queue hinzugefügt.",
+        "log_ocr_started": "OCR gestartet: {} Datei(en), Device={}, Reading={}",
+        "log_stop_requested": "OCR-Abbruch angefordert.",
+        "log_file_started": "Starte Datei: {}",
+        "log_file_done": "Fertig: {} ({} Zeilen)",
+        "log_file_error": "Fehler: {} -> {}",
+        "log_export_done": "Export abgeschlossen: {} Datei(en) als {} nach {}",
+        "log_export_single": "Export: {} -> {}",
+        "log_export_log_done": "Log exportiert: {}",
+
     },
 
     "en": {
@@ -238,6 +258,14 @@ TRANSLATIONS = {
         "menu_hw": "CPU/GPU",
         "menu_reading": "Reading Direction",
         "menu_appearance": "Appearance",
+
+        "log_toggle_show": "Log",
+        "log_toggle_hide": "Log",
+        "menu_export_log": "Export log as .txt...",
+        "dlg_save_log": "Save log",
+        "dlg_filter_txt": "Text (*.txt)",
+        "log_started": "Program started.",
+        "log_queue_cleared": "Queue cleared.",
 
         "lang_de": "German",
         "lang_en": "English",
@@ -259,15 +287,15 @@ TRANSLATIONS = {
         "msg_device_rocm": "ROCm",
         "msg_device_mps": "MPS",
 
-        "act_add_files": "Add files to queue...",
-        "act_download_model": "Download model...",
+        "act_add_files": "Load files...",
+        "act_download_model": "Download model (Zenodo)",
         "act_delete": "Delete",
         "act_rename": "Rename...",
         "act_clear_queue": "Clear queue",
-        "act_start_ocr": "Start OCR",
-        "act_stop_ocr": "Stop OCR",
-        "act_re_ocr": "Reset result & re-run OCR",
-        "act_re_ocr_tip": "Clears results of the current file and runs OCR again",
+        "act_start_ocr": "Start",
+        "act_stop_ocr": "Stop",
+        "act_re_ocr": "Reprocess",
+        "act_re_ocr_tip": "Reprocess selected file(s)",
         "act_overlay_show": "Show overlay boxes",
 
         "status_ready": "Ready.",
@@ -281,8 +309,8 @@ TRANSLATIONS = {
         "col_file": "File",
         "col_status": "Status",
 
-        "drop_hint": "Click here to add a file",
-        "queue_drop_hint": "Drop file here",
+        "drop_hint": "Drag & drop files here",
+        "queue_drop_hint": "Drag & drop files here",
 
         "info_title": "Information",
         "warn_title": "Warning",
@@ -292,7 +320,7 @@ TRANSLATIONS = {
         "theme_dark": "Dark",
 
         "warn_queue_empty": "Queue is empty or all items are processed.",
-        "warn_select_done": "Please select a completed item to export.",
+        "warn_select_done": "No file(s) loaded for re-OCR.",
         "warn_need_rec": "Please select a format model (recognition) first.",
         "warn_need_seg": "Please select a baseline model first.",
 
@@ -361,6 +389,17 @@ TRANSLATIONS = {
 
         "new_line_from_box_title": "New line",
         "new_line_from_box_label": "Text for the new line (optional):",
+
+        "log_added_files": "{} file(s) added to the queue.",
+        "log_ocr_started": "OCR started: {} file(s), Device={}, Reading={}",
+        "log_stop_requested": "OCR stop requested.",
+        "log_file_started": "Starting file: {}",
+        "log_file_done": "Done: {} ({} lines)",
+        "log_file_error": "Error: {} -> {}",
+        "log_export_done": "Export finished: {} file(s) as {} to {}",
+        "log_export_single": "Export: {} -> {}",
+        "log_export_log_done": "Log exported: {}",
+
     },
 
     "fr": {
@@ -376,6 +415,14 @@ TRANSLATIONS = {
         "menu_hw": "CPU/GPU",
         "menu_reading": "Direction de lecture",
         "menu_appearance": "Apparence",
+
+        "log_toggle_show": "Log",
+        "log_toggle_hide": "Log",
+        "menu_export_log": "Exporter le log en .txt...",
+        "dlg_save_log": "Enregistrer le log",
+        "dlg_filter_txt": "Texte (*.txt)",
+        "log_started": "Programme démarré.",
+        "log_queue_cleared": "File d’attente vidée.",
 
         "lang_de": "Allemand",
         "lang_en": "Anglais",
@@ -397,15 +444,15 @@ TRANSLATIONS = {
         "msg_device_rocm": "ROCm",
         "msg_device_mps": "MPS",
 
-        "act_add_files": "Ajouter des fichiers...",
-        "act_download_model": "Télécharger le modèle...",
+        "act_add_files": "Charger des fichiers…",
+        "act_download_model": "Télécharger le modèle (Zenodo)",
         "act_delete": "Supprimer",
         "act_rename": "Renommer...",
         "act_clear_queue": "Vider la file d’attente",
-        "act_start_ocr": "Démarrer OCR",
-        "act_stop_ocr": "Arrêter OCR",
-        "act_re_ocr": "Réinitialiser & relancer OCR",
-        "act_re_ocr_tip": "Efface les résultats du fichier actuel et relance l’OCR",
+        "act_start_ocr": "Démarrer",
+        "act_stop_ocr": "Arrêter",
+        "act_re_ocr": "Relancer",
+        "act_re_ocr_tip": "Relancer le traitement du/des fichier(s) sélectionné(s)",
         "act_overlay_show": "Afficher les boîtes de superposition",
 
         "status_ready": "Prêt.",
@@ -419,8 +466,8 @@ TRANSLATIONS = {
         "col_file": "Fichier",
         "col_status": "Statut",
 
-        "drop_hint": "Cliquez pour ajouter un fichier",
-        "queue_drop_hint": "Déposer un fichier ici",
+        "drop_hint": "Glissez-déposez des fichiers ici",
+        "queue_drop_hint": "Glissez-déposez des fichiers ici",
 
         "info_title": "Information",
         "warn_title": "Avertissement",
@@ -430,7 +477,7 @@ TRANSLATIONS = {
         "theme_dark": "Sombre",
 
         "warn_queue_empty": "La file d’attente est vide ou tous les éléments ont été traités.",
-        "warn_select_done": "Veuillez sélectionner un élément terminé à exporter.",
+        "warn_select_done": "Aucun fichier chargé pour relancer l’OCR.",
         "warn_need_rec": "Veuillez d’abord sélectionner un modèle de format (reconnaissance).",
         "warn_need_seg": "Veuillez d’abord sélectionner un modèle de baseline.",
 
@@ -499,9 +546,22 @@ TRANSLATIONS = {
 
         "new_line_from_box_title": "Nouvelle ligne",
         "new_line_from_box_label": "Texte pour la nouvelle ligne (optionnel):",
+
+        "log_added_files": "{} fichier(s) ajouté(s) à la file d’attente.",
+        "log_ocr_started": "OCR démarré : {} fichier(s), Appareil={}, Lecture={}",
+        "log_stop_requested": "Arrêt de l’OCR demandé.",
+        "log_file_started": "Traitement du fichier : {}",
+        "log_file_done": "Terminé : {} ({} lignes)",
+        "log_file_error": "Erreur : {} -> {}",
+        "log_export_done": "Export terminé : {} fichier(s) en {} vers {}",
+        "log_export_single": "Export : {} -> {}",
+        "log_export_log_done": "Log exporté : {}",
+
     }
 }
 
+BBox = Tuple[int, int, int, int]
+Point = Tuple[float, float]
 
 # -----------------------------
 # DATA CLASSES
@@ -510,11 +570,9 @@ TRANSLATIONS = {
 class RecordView:
     idx: int
     text: str
-    bbox: Optional[Tuple[int, int, int, int]]  # (x0,y0,x1,y1)
+    bbox: Optional[BBox]
 
-
-UndoSnapshot = Tuple[List[Tuple[str, Optional[Tuple[int, int, int, int]]]], int]  # (recs_state, selected_row)
-
+UndoSnapshot = Tuple[List[Tuple[str, Optional[BBox]]], int]
 
 @dataclass
 class TaskItem:
@@ -526,7 +584,6 @@ class TaskItem:
     undo_stack: List[UndoSnapshot] = field(default_factory=list)
     redo_stack: List[UndoSnapshot] = field(default_factory=list)
 
-
 @dataclass
 class OCRJob:
     input_paths: List[str]
@@ -536,7 +593,7 @@ class OCRJob:
     reading_direction: int
     export_format: str
     export_dir: Optional[str]
-
+    segmenter_mode: str = "blla"
 
 # -----------------------------
 # GEOMETRY & SORTING
@@ -607,134 +664,400 @@ def record_bbox(r: Any) -> Optional[Tuple[int, int, int, int]]:
             return x0, y0 - vpad, x1, y1 + vpad
     return None
 
+def baseline_length(bl) -> float:
+    pts = _coerce_points(bl)
+    if len(pts) < 2:
+        return 0.0
+    x1, y1 = pts[0]
+    x2, y2 = pts[-1]
+    return math.hypot(x2 - x1, y2 - y1)
 
-def sort_records_reading_order(records, image_width: int, reading_mode: int = READING_MODES["TB_LR"]):
-    def q(values, p):
-        if not values:
+# Vertikale Separator-Records (Spaltentrenner)
+VSEP_RE = re.compile(r'^[\|\u2502\u2503]+$')  # | │ ┃
+
+# Horizontale Separator-Records (Zeilentrenner)
+HSEP_RE = re.compile(r'^[_\-\u2500\u2501\u2504\u2505]{3,}$')  # ___ --- ─ ━ etc. (mind. 3)
+
+def sort_records_reading_order(records, image_width: int, image_height: int, reading_mode: int = READING_MODES["TB_LR"]):
+
+    # ---------- helpers ----------
+    def cx(bb): return (bb[0] + bb[2]) / 2.0
+    def cy(bb): return (bb[1] + bb[3]) / 2.0
+    def bw(bb): return bb[2] - bb[0]
+    def bh(bb): return bb[3] - bb[1]
+
+    def quant(vals, p):
+        if not vals:
             return None
-        vals = sorted(values)
-        k = (len(vals) - 1) * p
+        vs = sorted(vals)
+        k = (len(vs) - 1) * p
         f = int(k)
-        c = min(f + 1, len(vals) - 1)
+        c = min(f + 1, len(vs) - 1)
         if f == c:
-            return vals[f]
-        return vals[f] + (vals[c] - vals[f]) * (k - f)
+            return vs[f]
+        return vs[f] + (vs[c] - vs[f]) * (k - f)
 
-    def bb_center_x(bb):
-        return (bb[0] + bb[2]) / 2.0
+    # Direction flags
+    rev_y = (reading_mode in (READING_MODES["BT_LR"], READING_MODES["BT_RL"]))     # bottom->top
+    rev_cols = (reading_mode in (READING_MODES["TB_RL"], READING_MODES["BT_RL"])) # columns right->left
 
-    def bb_center_y(bb):
-        return (bb[1] + bb[3]) / 2.0
+    W = max(1, int(image_width))
 
-    def bb_h(bb):
-        return bb[3] - bb[1]
-
-    def bb_w(bb):
-        return bb[2] - bb[0]
-
-    def is_fullwidth(bb):
-        return bb_w(bb) >= int(image_width * 0.75)
-
-    items = []
+    # ---------- collect bboxes ----------
+    raw = []
     for r in records:
         bb = record_bbox(r)
         if bb:
-            items.append((r, bb))
-
-    if not items:
+            raw.append((r, bb))
+    if not raw:
         return list(records)
 
-    MIN_H = 14
-    body_candidates = [(r, bb) for (r, bb) in items if bb_h(bb) >= MIN_H and not is_fullwidth(bb)]
+    # ---------- estimate skew angle from baselines (best) ----------
+    angles = []
+    for r, _ in raw:
+        bl = getattr(r, "baseline", None)
+        pts = _coerce_points(bl)
+        if len(pts) >= 2:
+            x1, y1 = pts[0]
+            x2, y2 = pts[-1]
+            dx = (x2 - x1)
+            dy = (y2 - y1)
+            if abs(dx) > 1.0:
+                a = math.atan2(dy, dx)
+                # reject crazy angles
+                if abs(a) < math.radians(20):
+                    angles.append(a)
 
-    if len(body_candidates) < 6:
-        reverse_y = (reading_mode // 2) == 1
-        reverse_x = (reading_mode % 2) == 1
-        return [r for r, _ in sorted(items, key=lambda x: (x[1][1] if not reverse_y else -x[1][1],
-                                                           x[1][0] if not reverse_x else -x[1][0]))]
+    skew = statistics.median(angles) if angles else 0.0
+    # rotate coordinates by -skew (deskew)
+    cs = math.cos(-skew)
+    sn = math.sin(-skew)
 
-    xs = [bb_center_x(bb) for _, bb in body_candidates]
-    c1 = q(xs, 0.25)
-    c2 = q(xs, 0.75)
+    Wc = max(1.0, float(image_width)) / 2.0
+    Hc = max(1.0, float(image_height)) / 2.0
 
-    if c1 is None or c2 is None:
-        return [r for r, _ in sorted(items, key=lambda x: (x[1][1], x[1][0]))]
+    def rot(x, y):
+        # translate -> rotate -> translate back
+        x -= Wc
+        y -= Hc
+        xr = x * cs - y * sn
+        yr = x * sn + y * cs
+        return (xr + Wc, yr + Hc)
 
-    for _ in range(8):
-        g1, g2 = [], []
-        for x in xs:
-            (g1 if abs(x - c1) <= abs(x - c2) else g2).append(x)
-        c1 = sum(g1) / len(g1) if g1 else c1
-        c2 = sum(g2) / len(g2) if g2 else c2
+    def deskew_bb(bb):
+        x0, y0, x1, y1 = bb
+        pts = [rot(x0, y0), rot(x1, y0), rot(x1, y1), rot(x0, y1)]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return (min(xs), min(ys), max(xs), max(ys))
 
-    if c1 > c2:
-        c1, c2 = c2, c1
+    items = []
+    for r, bb in raw:
+        dbb = deskew_bb(bb)
+        items.append((r, bb, dbb))
 
-    if abs(c2 - c1) < image_width * 0.18:
-        return [r for r, _ in sorted(items, key=lambda x: (x[1][1], x[1][0]))]
+    # ---------- typical line height (deskewed) ----------
+    hs = [ (dbb[3]-dbb[1]) for _,_,dbb in items if (dbb[3]-dbb[1]) > 0 ]
+    med_h = sorted(hs)[len(hs)//2] if hs else 14.0
+    MIN_H = max(10.0, 0.6 * med_h)
 
-    ys_top = [bb[1] for _, bb in body_candidates]
-    ys_bot = [bb[3] for _, bb in body_candidates]
-    body_top = q(ys_top, 0.08)
-    body_bot = q(ys_bot, 0.92)
+    def is_fullwidth(dbb):
+        return (dbb[2]-dbb[0]) >= 0.82 * W
 
+    # body candidates
+    body = [(r, bb, dbb) for (r, bb, dbb) in items if (dbb[3]-dbb[1]) >= MIN_H and not is_fullwidth(dbb)]
+    if len(body) < 8:
+        # fallback: deskewed y then x
+        ordered = sorted(items, key=lambda x: (cy(x[2]), cx(x[2])), reverse=rev_y)
+        return [r for r,_,_ in ordered]
+
+    # ---------- header/footer by y quantiles (deskewed) ----------
+    ys_top = [dbb[1] for _,_,dbb in body]
+    ys_bot = [dbb[3] for _,_,dbb in body]
+    body_top = quant(ys_top, 0.08)
+    body_bot = quant(ys_bot, 0.92)
     if body_top is None or body_bot is None:
-        return [r for r, _ in sorted(items, key=lambda x: (x[1][1], x[1][0]))]
+        ordered = sorted(items, key=lambda x: (cy(x[2]), cx(x[2])), reverse=rev_y)
+        return [r for r,_,_ in ordered]
 
-    MARGIN_Y = 10
+    MARGIN_Y = max(10.0, 0.8 * med_h)
+
     header, footer, midband = [], [], []
-
-    for r, bb in items:
-        if bb_h(bb) < MIN_H:
-            midband.append((r, bb))
-            continue
-        if bb[3] < (body_top - MARGIN_Y):
-            header.append((r, bb))
-        elif bb[1] > (body_bot + MARGIN_Y):
-            footer.append((r, bb))
+    for r, bb, dbb in items:
+        if dbb[3] < (body_top - MARGIN_Y):
+            header.append((r, bb, dbb))
+        elif dbb[1] > (body_bot + MARGIN_Y):
+            footer.append((r, bb, dbb))
         else:
-            midband.append((r, bb))
+            midband.append((r, bb, dbb))
 
-    rev_y = (reading_mode == READING_MODES["BT_LR"] or reading_mode == READING_MODES["BT_RL"])
-    rev_x = (reading_mode == READING_MODES["TB_RL"] or reading_mode == READING_MODES["BT_RL"])
+    def sort_y_then_x(lst):
+        return sorted(lst, key=lambda x: (cy(x[2]), cx(x[2])), reverse=rev_y)
 
-    def sort_key(item):
-        bb = item[1]
-        ky = bb_center_y(bb)
-        kx = bb[0]
-        return (-ky if rev_y else ky, -kx if rev_x else kx)
+    header_sorted = sort_y_then_x(header)
+    footer_sorted = sort_y_then_x(footer)
 
-    header_sorted = sorted(header, key=sort_key)
-    footer_sorted = sorted(footer, key=sort_key)
-
-    left_col, right_col = [], []
-    for r, bb in midband:
-        if is_fullwidth(bb):
-            left_col.append((r, bb))
+    # ---------- detect vertical separators ('|', '│', '┃') as gutters ----------
+    # We treat records that are basically only "|" and are tall+thin as separators.
+    sep_x = []
+    for r, bb, dbb in midband:
+        pred = getattr(r, "prediction", "")
+        t = str(pred).strip()
+        if not t:
             continue
-        x = bb_center_x(bb)
-        if abs(x - c1) <= abs(x - c2):
-            left_col.append((r, bb))
-        else:
-            right_col.append((r, bb))
+        if VSEP_RE.match(t):
+            w_sep = (dbb[2]-dbb[0])
+            h_sep = (dbb[3]-dbb[1])
+            # etwas weniger streng -> Separator wird eher erkannt
+            if w_sep <= 0.05 * W and h_sep >= 1.8 * med_h:
+                sep_x.append(cx(dbb))
 
-    left_sorted = sorted(left_col, key=sort_key)
-    right_sorted = sorted(right_col, key=sort_key)
 
-    if reading_mode == READING_MODES["TB_LR"]:
-        ordered = [r for r, _ in header_sorted] + [r for r, _ in left_sorted] + \
-                  [r for r, _ in right_sorted] + [r for r, _ in footer_sorted]
-    elif reading_mode == READING_MODES["TB_RL"]:
-        ordered = [r for r, _ in header_sorted] + [r for r, _ in right_sorted] + \
-                  [r for r, _ in left_sorted] + [r for r, _ in footer_sorted]
-    elif reading_mode == READING_MODES["BT_LR"]:
-        ordered = [r for r, _ in footer_sorted] + [r for r, _ in left_sorted] + \
-                  [r for r, _ in right_sorted] + [r for r, _ in header_sorted]
+    sep_x.sort()
+    # keep only separators that are reasonably distinct
+    filtered = []
+    for x in sep_x:
+        if not filtered or abs(x - filtered[-1]) > max(10.0, 0.02 * W):
+            filtered.append(x)
+    sep_x = filtered
+
+    # ---------- build columns ----------
+    mid_text = [(r, bb, dbb) for (r, bb, dbb) in midband if (dbb[3]-dbb[1]) >= MIN_H and not is_fullwidth(dbb)]
+
+    # If we have explicit separators, use them as boundaries:
+    # columns = count(separators) + 1
+    if len(sep_x) >= 1:
+        bounds = sep_x[:]  # each is a boundary x
+        ncols = len(bounds) + 1
+
+        GUTTER = max(18.0, 0.01 * W)  # Schutzbereich um die Trennlinie
+
+        def col_index_for(dbb):
+            # Fullwidth immer in "erste Spalte" (Header/Spanner behandeln wir später separat)
+            if is_fullwidth(dbb):
+                return 0
+            # Wenn eine Box komplett links von der Trennlinie liegt -> links
+            # (wichtig für rechtsbündige kurze Zeilen wie "w. Koehler.")
+            for i, b in enumerate(bounds):
+                if dbb[2] <= b - GUTTER:   # right edge klar links
+                    return i
+
+            # Wenn komplett rechts -> rechts
+            for i, b in enumerate(bounds):
+                if dbb[0] >= b + GUTTER:   # left edge klar rechts
+                    continue
+                # überlappt GUTTER -> entscheide über Center
+                break
+
+            x_center = (dbb[0] + dbb[2]) / 2.0
+            i = 0
+            for b in bounds:
+                if x_center < b:
+                    return i
+                i += 1
+            return ncols - 1
+
+        cols = [[] for _ in range(ncols)]
+        for r, bb, dbb in midband:
+            cols[col_index_for(dbb)].append((r, bb, dbb))
+
     else:
-        ordered = [r for r, _ in footer_sorted] + [r for r, _ in right_sorted] + \
-                  [r for r, _ in left_sorted] + [r for r, _ in header_sorted]
+        # No explicit separators: cluster by left edge x0 (deskewed), but robust against skew/indent
+        x_threshold = max(55.0, 0.07 * W)      # a bit larger -> skew tolerant
+        indent_dx   = max(30.0, 0.05 * W)      # merge indents more aggressively
+        min_items_for_real_col = max(10, int(0.12 * len(mid_text)))  # require stronger evidence
 
-    return ordered
+        clusters = []  # {"x": mean_x0, "items":[...]}
+        for r, bb, dbb in mid_text:
+            x0 = dbb[0]
+            placed = False
+            for c in clusters:
+                if abs(c["x"] - x0) <= x_threshold:
+                    c["items"].append((r, bb, dbb))
+                    c["x"] = (c["x"] * 0.85) + (x0 * 0.15)
+                    placed = True
+                    break
+            if not placed:
+                clusters.append({"x": float(x0), "items": [(r, bb, dbb)]})
+
+        clusters.sort(key=lambda c: c["x"])
+        # --- NEW: merge "indent/center" clusters by strong horizontal overlap ---
+        def q(vals, p):
+            if not vals:
+                return None
+            vs = sorted(vals)
+            k = (len(vs) - 1) * p
+            f = int(k)
+            c = min(f + 1, len(vs) - 1)
+            if f == c:
+                return vs[f]
+            return vs[f] + (vs[c] - vs[f]) * (k - f)
+
+        def span(c):
+            lefts = [it[2][0] for it in c["items"]]   # dbb x0
+            rights = [it[2][2] for it in c["items"]]  # dbb x1
+            l = q(lefts, 0.20) if lefts else c["x"]
+            r = q(rights, 0.80) if rights else c["x"]
+            if l is None or r is None:
+                return (c["x"], c["x"])
+            return (float(l), float(r))
+
+        def should_merge(c1, c2):
+            l1, r1 = span(c1)
+            l2, r2 = span(c2)
+            w1 = max(1.0, r1 - l1)
+            w2 = max(1.0, r2 - l2)
+
+            # overlap ratio (indent/center => high, real columns => near 0)
+            overlap = max(0.0, min(r1, r2) - max(l1, l2))
+            overlap_ratio = overlap / max(1.0, min(w1, w2))
+
+            dx = abs(c2["x"] - c1["x"])
+
+            # If close-ish in x OR one sits inside the other, AND they overlap strongly -> merge
+            close = dx <= max(80.0, 0.12 * W)
+            inside = (l2 >= l1 - 0.03 * W and r2 <= r1 + 0.03 * W) or (l1 >= l2 - 0.03 * W and r1 <= r2 + 0.03 * W)
+
+            return (overlap_ratio >= 0.55) and (close or inside)
+
+        merged_pass = True
+        while merged_pass and len(clusters) > 1:
+            merged_pass = False
+            new_list = []
+            i = 0
+            while i < len(clusters):
+                if i < len(clusters) - 1 and should_merge(clusters[i], clusters[i + 1]):
+                    a = clusters[i]
+                    b = clusters[i + 1]
+                    a["items"].extend(b["items"])
+                    # update mean x0
+                    a["x"] = float(sum(it[2][0] for it in a["items"])) / max(1, len(a["items"]))
+                    new_list.append(a)
+                    i += 2
+                    merged_pass = True
+                else:
+                    new_list.append(clusters[i])
+                    i += 1
+            clusters = new_list
+
+        clusters.sort(key=lambda c: c["x"])
+
+        # merge small "indent" clusters into nearest real cluster
+        def is_real(c):
+            return len(c["items"]) >= min_items_for_real_col
+
+        merged = clusters[:]
+        for c in list(merged):
+            if is_real(c):
+                continue
+            # nearest real cluster
+            best = None
+            best_d = None
+            for t in merged:
+                if t is c or not is_real(t):
+                    continue
+                d = abs(t["x"] - c["x"])
+                if best_d is None or d < best_d:
+                    best, best_d = t, d
+            if best is not None and best_d is not None and best_d <= indent_dx:
+                best["items"].extend(c["items"])
+                merged = [z for z in merged if z is not c]
+
+        merged.sort(key=lambda c: c["x"])
+
+        # If still looks like "one column with indents" -> treat as single column.
+        if len(merged) >= 2:
+            sizes = sorted([len(c["items"]) for c in merged], reverse=True)
+            biggest = sizes[0]
+            ratio = biggest / max(1, sum(sizes))
+            # if one cluster dominates strongly -> single column
+            if ratio >= 0.70:
+                merged = [max(merged, key=lambda c: len(c["items"]))]
+
+        if len(merged) <= 1:
+            # single column -> just y then x
+            core = sort_y_then_x(midband)
+            return [r for r,_,_ in header_sorted] + [r for r,_,_ in core] + [r for r,_,_ in footer_sorted]
+
+        # build bounds between cluster starts
+        col_starts = [c["x"] for c in merged]
+        bounds = [(col_starts[i] + col_starts[i+1]) / 2.0 for i in range(len(col_starts) - 1)]
+
+        def col_index_for(dbb):
+            x = dbb[0]
+            if is_fullwidth(dbb):
+                return 0
+            for i, b in enumerate(bounds):
+                if x < b:
+                    return i
+            return len(col_starts) - 1
+
+        cols = [[] for _ in range(len(col_starts))]
+        for r, bb, dbb in midband:
+            cols[col_index_for(dbb)].append((r, bb, dbb))
+
+        # ---------- SECOND PASS: centered headings above columns -> header ----------
+        def body_like(dbb):
+            h = (dbb[3] - dbb[1])
+            w = (dbb[2] - dbb[0])
+            if h < MIN_H:
+                return False
+            if is_fullwidth(dbb):
+                return False
+            return w >= 0.10 * W
+
+        # oberste "echte" Textzeile in den Spalten finden
+        col_tops = []
+        for col in cols:
+            ys = [it[2][1] for it in col if body_like(it[2])]
+            if ys:
+                col_tops.append(min(ys))
+        first_body_y = min(col_tops) if col_tops else body_top
+
+        def is_centered_heading(dbb):
+            w = (dbb[2] - dbb[0])
+            if w > 0.85 * W:
+                # sehr breit -> eher normaler Absatz; den lassen wir hier in Ruhe
+                return False
+            x_center = (dbb[0] + dbb[2]) / 2.0
+            return abs(x_center - (W / 2.0)) <= 0.18 * W  # "zentriert genug"
+
+        promote = []
+        keep_mid = []
+        Y_PAD = max(10.0, 0.9 * med_h)
+
+        for r, bb, dbb in midband:
+            # deutlich oberhalb der ersten Spaltenzeile UND zentriert -> header
+            if (dbb[3] < (first_body_y - Y_PAD)) and is_centered_heading(dbb):
+                promote.append((r, bb, dbb))
+            else:
+                keep_mid.append((r, bb, dbb))
+
+        if promote:
+            # in header aufnehmen
+            header_sorted = sort_y_then_x(header + promote)
+            midband = keep_mid
+
+            # cols NEU aus midband aufbauen
+            cols = [[] for _ in range(len(col_starts))]
+            for r, bb, dbb in midband:
+                cols[col_index_for(dbb)].append((r, bb, dbb))
+
+    # ---------- sort within each column ----------
+    def sort_col(col):
+        return sorted(col, key=lambda x: (cy(x[2]), cx(x[2])), reverse=rev_y)
+
+    cols = [sort_col(c) for c in cols]
+
+    col_order = list(range(len(cols)))
+    if rev_cols:
+        col_order = list(reversed(col_order))
+
+    core = []
+    for ci in col_order:
+        core.extend(cols[ci])
+
+    return [r for r,_,_ in header_sorted] + [r for r,_,_ in core] + [r for r,_,_ in footer_sorted]
 
 
 def clamp_bbox(bb: Tuple[int, int, int, int], w: int, h: int) -> Optional[Tuple[int, int, int, int]]:
@@ -775,36 +1098,153 @@ def cluster_columns(records: List[RecordView], x_threshold: int = 45):
 def is_same_visual_row(a: RecordView, b: RecordView, page_width: int) -> bool:
     if not a.bbox or not b.bbox:
         return False
+
     ax0, ay0, ax1, ay1 = a.bbox
     bx0, by0, bx1, by1 = b.bbox
+
+    # y-Ähnlichkeit
     if abs(ay0 - by0) > 12:
         return False
-    mid = page_width // 2
-    if (ax1 < mid and bx0 > mid) or (bx1 < mid and ax0 > mid):
+
+    w = max(1, int(page_width))
+    mid = w // 2
+
+    aw = ax1 - ax0
+    bw = bx1 - bx0
+
+    # Wenn beide Boxen "Textzeilen-breit" sind und in unterschiedlichen Spalten liegen,
+    # dann sind das KEINE Tabellenzellen derselben Zeile.
+    textish_a = aw >= int(0.30 * w)
+    textish_b = bw >= int(0.30 * w)
+
+    a_left = (ax0 < mid and ax1 <= mid + int(0.05*w))
+    b_right = (bx1 > mid and bx0 >= mid - int(0.05*w))
+    b_left = (bx0 < mid and bx1 <= mid + int(0.05*w))
+    a_right = (ax1 > mid and ax0 >= mid - int(0.05*w))
+
+    if textish_a and textish_b and ((a_left and b_right) or (b_left and a_right)):
         return False
+
     return True
 
-
 def group_rows_by_y(records: List[RecordView], page_width: int):
-    rows = []
-    sorted_recs = sorted([r for r in records if r.bbox], key=lambda rv: (rv.bbox[1], rv.bbox[0]))
+    recs = [r for r in records if r.bbox]
+    if not recs:
+        return []
+
+    w = max(1, int(page_width))
+
+    # robuste Zeilenhöhe
+    hs = sorted([(rv.bbox[3] - rv.bbox[1]) for rv in recs if (rv.bbox[3] - rv.bbox[1]) > 0])
+    med_h = hs[len(hs)//2] if hs else 14
+
+    # enger = "Abstand geringer" (striktere Gruppierung)
+    y_tol = max(10, int(0.45 * med_h))
+
+    # NEW: horizontale Separatoren (_____ / ---- / ───) erkennen
+    sep_y: List[float] = []
+    filtered_recs: List[RecordView] = []
+    for rv in recs:
+        txt = (rv.text or "").strip()
+        x0, y0, x1, y1 = rv.bbox
+        bw = (x1 - x0)
+        bh = (y1 - y0)
+
+        is_hsep = bool(HSEP_RE.match(txt)) and (bw >= 0.55 * w) and (bh <= 0.7 * med_h)
+        if is_hsep:
+            sep_y.append((y0 + y1) / 2.0)
+        else:
+            filtered_recs.append(rv)
+
+    sep_y.sort()
+    recs = filtered_recs
+
+    def center_y(rv):
+        x0, y0, x1, y1 = rv.bbox
+        return (y0 + y1) / 2.0
+
+    sorted_recs = sorted(recs, key=lambda rv: (center_y(rv), rv.bbox[0]))
+
+    rows: List[List[RecordView]] = []
+    row_y: List[float] = []
+    row_band: List[int] = []
+
+    def band_index(cy: float) -> int:
+        # wie viele Separatoren liegen oberhalb? -> Band 0..n
+        idx = 0
+        for y in sep_y:
+            if cy > y:
+                idx += 1
+            else:
+                break
+        return idx
+
     for r in sorted_recs:
+        cy = center_y(r)
+        b = band_index(cy)
         placed = False
-        for row in rows:
-            if is_same_visual_row(row[0], r, page_width):
-                row.append(r)
+
+        for i in range(len(rows)):
+            if row_band[i] != b:
+                continue
+            if abs(cy - row_y[i]) <= y_tol:
+                rows[i].append(r)
+                row_y[i] = row_y[i] * 0.85 + cy * 0.15
                 placed = True
                 break
+
         if not placed:
             rows.append([r])
+            row_y.append(cy)
+            row_band.append(b)
+
     for row in rows:
         row.sort(key=lambda rv: rv.bbox[0])
     return rows
 
-
 def table_to_rows(records: List[RecordView], page_width: int) -> List[List[str]]:
+    # Wenn der Text explizite Trenner enthält, nutze die als "harte" Spalten,
+    # statt aus BBox-Positionen eine Tabelle zu raten.
+    has_pipes = any(
+        (rv.text and (
+                any(ch in rv.text for ch in ("|", "│", "┃")) or
+                re.search(r"(?:_{2,}|\s_\s)", rv.text)  # "__" oder " _ " als Trenner
+        ))
+        for rv in records
+    )
+
+    if has_pipes:
+        rows = group_rows_by_y(records, page_width)
+        grid = []
+        for row in rows:
+            # links->rechts sortieren
+            row = [rv for rv in row if rv.bbox]
+            row.sort(key=lambda rv: rv.bbox[0] if rv.bbox else 0)
+
+            cells: List[str] = []
+            for rv in row:
+                txt = (rv.text or "").strip()
+                if not txt:
+                    continue
+                # reine Separator-Records ignorieren
+                if re.fullmatch(r"[\|\u2502\u2503]+", txt):
+                    continue
+                # split an pipes
+                if any(ch in txt for ch in ("|", "│", "┃")):
+                    parts = re.split(r"\s*(?:[\|\u2502\u2503]+|_{2,}|\s_\s)\s*", txt)
+                    parts = [p.strip() for p in parts if p.strip()]
+                    if parts:
+                        cells.extend(parts)
+                else:
+                    cells.append(txt)
+
+            grid.append(cells if cells else [""])
+        return grid
+
+    # sonst: dein bestehender bbox-basierter Tabellenmodus
     rows = group_rows_by_y(records, page_width)
     cols = cluster_columns(records)
+
     col_x = []
     for col in cols:
         xs = [rv.bbox[0] for rv in col if rv.bbox]
@@ -835,7 +1275,6 @@ def table_to_rows(records: List[RecordView], page_width: int) -> List[List[str]]
                 line[c] = rv.text
         grid.append(line)
     return grid
-
 
 # -----------------------------
 # RESIZABLE / MOVABLE RECT ITEM
@@ -966,6 +1405,7 @@ class ResizableRectItem(QGraphicsRectItem):
 class DropQueueTable(QTableWidget):
     files_dropped = Signal(list)
     table_resized = Signal()
+    delete_pressed = Signal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -977,6 +1417,13 @@ class DropQueueTable(QTableWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.table_resized.emit()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Delete:
+            self.delete_pressed.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -1128,7 +1575,8 @@ class ImageCanvas(QGraphicsView):
         self.setScene(self.scene)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.setDragMode(QGraphicsView.NoDrag)
+        self._space_panning = False
 
         # Drag & Drop
         self.setAcceptDrops(True)
@@ -1161,6 +1609,30 @@ class ImageCanvas(QGraphicsView):
         self._overlay_enabled = False
 
         self._show_drop_hint()
+
+    def _get_view_state(self):
+        """Return (transform, center_scene_point, zoom_scalar)"""
+        try:
+            t = self.transform()
+            center = self.mapToScene(self.viewport().rect().center())
+            z = float(t.m11())  # assuming uniform scaling
+            return t, center, z
+        except Exception:
+            return None, None, None
+
+    def _restore_view_state(self, t, center, z):
+        try:
+            if t is not None:
+                self.setTransform(t)
+            if center is not None:
+                self.centerOn(center)
+            # keep internal zoom in sync (wheelEvent uses it)
+            if z is not None:
+                self._zoom = float(z)
+            else:
+                self._zoom = float(self.transform().m11())
+        except Exception:
+            pass
 
     @staticmethod
     def _event_point(event) -> QPoint:
@@ -1198,6 +1670,12 @@ class ImageCanvas(QGraphicsView):
         else:
             event.ignore()
 
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
     def dropEvent(self, event: QDropEvent):
         if not event.mimeData().hasUrls():
             event.ignore()
@@ -1230,7 +1708,7 @@ class ImageCanvas(QGraphicsView):
             except RuntimeError:
                 pass
             self._draw_rect_item = None
-        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.setDragMode(QGraphicsView.NoDrag)
 
     def contextMenuEvent(self, event):
         pos = event.pos()
@@ -1247,8 +1725,6 @@ class ImageCanvas(QGraphicsView):
 
         if isinstance(item, ResizableRectItem):
             idx = item.idx
-            act_sel = menu.addAction(tr("canvas_menu_select_line") if tr else "Select line")
-            menu.addSeparator()
             act_edit = menu.addAction(tr("canvas_menu_edit_box") if tr else "Edit overlay box...")
             act_del = menu.addAction(tr("canvas_menu_delete_box") if tr else "Delete overlay box")
             menu.addSeparator()
@@ -1257,10 +1733,9 @@ class ImageCanvas(QGraphicsView):
             chosen = menu.exec(event.globalPos())
             if not chosen:
                 return
-            if chosen == act_sel:
-                self.overlay_select_requested.emit(idx)
             elif chosen == act_edit:
-                self.overlay_edit_requested.emit(idx)
+                self.rect_clicked.emit(idx)
+                self.select_idx(idx, center=True)
             elif chosen == act_del:
                 self.overlay_delete_requested.emit(idx)
             elif chosen == act_add_draw:
@@ -1297,10 +1772,27 @@ class ImageCanvas(QGraphicsView):
         item = self.itemAt(self._event_point(event))
         if isinstance(item, ResizableRectItem):
             self.rect_clicked.emit(item.idx)
+            # WICHTIG: nicht return -> Item muss Maus-Events bekommen für Move/Resize
+            super().mousePressEvent(event)
             return
 
         if event.button() == Qt.LeftButton and not self._pixmap_item:
             self.canvas_clicked.emit()
+
+        item = self.itemAt(self._event_point(event))
+        if isinstance(item, ResizableRectItem):
+            self.rect_clicked.emit(item.idx)
+            return
+
+        # Klick auf Bild/Leere Fläche: keine Drag/Pan-Aktion starten
+        if event.button() == Qt.LeftButton:
+            it = self.itemAt(self._event_point(event))
+
+            # falls Pixmap oder Leere Fläche geklickt -> nur deselect + accept
+            if (it is None) or (self._pixmap_item is not None and it == self._pixmap_item):
+                self.select_idx(None, center=False)
+                event.accept()
+                return
 
         super().mousePressEvent(event)
 
@@ -1344,18 +1836,56 @@ class ImageCanvas(QGraphicsView):
         self._zoom = 1.0
         self._show_drop_hint()
 
-    def _show_drop_hint(self):
-        if not self._pixmap_item and not self._drop_text:
-            font = QFont("Arial", 20)
-            font.setItalic(True)
-            txt = self.tr_func("drop_hint") if self.tr_func else "Click to add a file"
-            self._drop_text = self.scene.addText(txt, font)
-            rect = self._drop_text.boundingRect()
-            self._drop_text.setPos(-rect.width() / 2, -rect.height() / 2)
-            c = QColor("#aaa") if self._bg_color.lightness() < 128 else QColor("#555")
-            self._drop_text.setDefaultTextColor(c)
+    def _center_drop_hint_in_view(self):
+        if not self._drop_text or self._pixmap_item:
+            return
 
-    def load_pil_image(self, im: Image.Image):
+        # Mittelpunkt des sichtbaren Viewports in Scene-Koordinaten
+        center = self.mapToScene(self.viewport().rect().center())
+
+        rect = self._drop_text.boundingRect()
+        self._drop_text.setPos(center.x() - rect.width() / 2, center.y() - rect.height() / 2)
+
+        # Szene so setzen, dass der Text sicher enthalten ist (sonst kann Qt komisch scrollen)
+        br = self.scene.itemsBoundingRect()
+        if br.isValid():
+            self.setSceneRect(br.adjusted(-50, -50, 50, 50))
+
+    def _show_drop_hint(self):
+        if self._pixmap_item:
+            return
+
+        font = QFont("Arial", 20)
+        font.setItalic(True)
+        txt = self.tr_func("drop_hint") if self.tr_func else "Drag & drop files here"
+
+        c = QColor("#aaa") if self._bg_color.lightness() < 128 else QColor("#555")
+
+        # Wenn schon vorhanden: nur aktualisieren
+        if self._drop_text and isValid(self._drop_text):
+            self._drop_text.setFont(font)
+            self._drop_text.setPlainText(txt)
+            self._drop_text.setDefaultTextColor(c)
+            self._center_drop_hint_in_view()
+            return
+
+        # Sonst: neu erzeugen
+        self._drop_text = self.scene.addText(txt, font)
+        self._drop_text.setDefaultTextColor(c)
+        self._center_drop_hint_in_view()
+
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._pixmap_item:
+            self._center_drop_hint_in_view()
+
+    def load_pil_image(self, im: Image.Image, preserve_view: bool = False):
+        # save current view state BEFORE clearing, if requested
+        t = center = z = None
+        if preserve_view:
+            t, center, z = self._get_view_state()
+
         self.stop_draw_box_mode()
         self.scene.clear()
         self._pixmap_item = None
@@ -1363,16 +1893,27 @@ class ImageCanvas(QGraphicsView):
         self._labels.clear()
         self._selected_idx = None
         self._drop_text = None
-        self.resetTransform()
-        self._zoom = 1.0
+
+        # IMPORTANT: don't always reset/fit if we preserve
+        if not preserve_view:
+            self.resetTransform()
+            self._zoom = 1.0
 
         qim = ImageQt(im.convert("RGB"))
         pix = QPixmap.fromImage(qim)
         self._pixmap_item = self.scene.addPixmap(pix)
         self._pixmap_item.setZValue(0)
         self.setSceneRect(self.scene.itemsBoundingRect())
-        self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
-        self._zoom = 1.0
+
+        if preserve_view and t is not None:
+            self._restore_view_state(t, center, z)
+        else:
+            self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+            # sync zoom from actual transform
+            try:
+                self._zoom = float(self.transform().m11())
+            except Exception:
+                self._zoom = 1.0
 
     def refresh_overlays(self):
         if self._pixmap_item and hasattr(self, "_last_recs"):
@@ -1542,10 +2083,13 @@ class OCRWorker(QThread):
             self._emit_gpu_info(self._device)
         if self._rec_model is None:
             self._rec_model = self._load_rec_model(self.job.recognition_model_path, self._device)
-        if self._seg_model is None:
-            if not self.job.segmentation_model_path:
-                raise ValueError("No baseline model selected.")
-            self._seg_model = self._load_seg_model(self.job.segmentation_model_path, self._device)
+        if getattr(self.job, "segmenter_mode", "blla") == "blla":
+            if self._seg_model is None:
+                if not self.job.segmentation_model_path:
+                    raise ValueError("No baseline model selected.")
+                self._seg_model = self._load_seg_model(self.job.segmentation_model_path, self._device)
+        else:
+            self._seg_model = None  # sicherheitshalber
 
     @staticmethod
     def _seg_expected_lines(seg: Any) -> Optional[int]:
@@ -1566,31 +2110,86 @@ class OCRWorker(QThread):
         overall = (file_idx + frac_in_file) / float(total_files)
         self.progress.emit(int(overall * 100))
 
+    # -------------------------------------------------------
+    # OCRWorker._ocr_one (ersetze deine komplette Funktion damit)
+    # -------------------------------------------------------
     def _ocr_one(self, img_path: str, file_idx: int, total_files: int):
         self.file_started.emit(img_path)
         try:
-            im = Image.open(img_path)
+            # --- load image once (RGB) ---
+            im = Image.open(img_path).convert("RGB")
 
-            seg = blla.segment(im, model=self._seg_model)
+            # --- FIX A: zu kleine Bilder hochskalieren (verhindert Baselines < 5px) ---
+            min_dim = min(im.size)
+            if min_dim < 1200:
+                scale = 2 if min_dim >= 700 else 3
+                im = im.resize((im.size[0] * scale, im.size[1] * scale), Image.BICUBIC)
+
+            # --- segmentation ---
+            if getattr(self.job, "segmenter_mode", "blla") == "pageseg":
+                seg = pageseg.segment(im)
+            else:
+                seg = blla.segment(im, model=self._seg_model)
+
+            # --- FIX B: winzige/kaputte Baselines entfernen (Baseline length below minimum 5px) ---
+            try:
+                if hasattr(seg, "baselines") and hasattr(seg, "lines") and seg.baselines and seg.lines:
+                    new_baselines = []
+                    new_lines = []
+                    for bl, ln in zip(seg.baselines, seg.lines):
+                        if baseline_length(bl) >= 5.0:
+                            new_baselines.append(bl)
+                            new_lines.append(ln)
+                    seg.baselines = new_baselines
+                    seg.lines = new_lines
+            except Exception:
+                pass
+
             expected = self._seg_expected_lines(seg)
 
+            # --- recognition ---
             kr_records = []
             done = 0
-            for rec in rpred.rpred(self._rec_model, im, seg):
-                kr_records.append(rec)
-                done += 1
-                if expected and expected > 0:
-                    self._emit_overall_progress(file_idx, total_files, done / expected)
 
-                if self.isInterruptionRequested():
-                    break
+            try:
+                for rec in rpred.rpred(self._rec_model, im, seg):
+                    kr_records.append(rec)
+                    done += 1
+                    if expected and expected > 0:
+                        self._emit_overall_progress(file_idx, total_files, done / expected)
+
+                    if self.isInterruptionRequested():
+                        break
+            except Exception as e:
+                self.file_error.emit(img_path, str(e))
+                return
 
             if self.isInterruptionRequested():
                 return
 
-            kr_sorted = sort_records_reading_order(kr_records, im.size[0], self.job.reading_direction)
+            # --- sort records in reading order ---
+            kr_sorted = sort_records_reading_order(
+                kr_records, im.size[0], im.size[1], self.job.reading_direction
+            )
 
-            wide_line_splitter = re.compile(r"\s{2,}")
+            # --- WIDE LINE SPLIT: nur echte 2-Spalten-Zeilen splitten, Header NICHT ---
+            def _is_header_like(bb, txt, page_w, page_h):
+                x0, y0, x1, y1 = bb
+                w = x1 - x0
+                cx = (x0 + x1) / 2.0
+
+                if w < 0.72 * page_w:
+                    return False
+                if abs(cx - (page_w / 2.0)) > 0.20 * page_w:
+                    return False
+                if y0 > 0.45 * page_h:
+                    return False
+                if len((txt or "").strip()) > 90:
+                    return False
+                return True
+
+            two_col_splitter = re.compile(r"\s{4,}")
+
             record_views: List[RecordView] = []
             lines: List[str] = []
             out_idx = 0
@@ -1606,21 +2205,27 @@ class OCRWorker(QThread):
                 if bb:
                     x0, y0, x1, y1 = bb
                     w = x1 - x0
-                    if w > int(page_w * 0.80):
-                        parts = wide_line_splitter.split(txt, maxsplit=1)
+                    if w > int(page_w * 0.80) and not _is_header_like(bb, txt, page_w, page_h):
+                        parts = two_col_splitter.split(txt, maxsplit=1)
                         if len(parts) == 2:
                             left_txt, right_txt = map(str.strip, parts)
                             mid = page_w // 2
                             left_bb = clamp_bbox((0, y0, mid, y1), page_w, page_h)
                             right_bb = clamp_bbox((mid, y0, page_w, y1), page_w, page_h)
 
-                            if left_bb:
-                                record_views.append(RecordView(out_idx, left_txt, left_bb))
-                                lines.append(left_txt)
-                                out_idx += 1
-                            if right_bb:
-                                record_views.append(RecordView(out_idx, right_txt, right_bb))
-                                lines.append(right_txt)
+                            parts_in_order = []
+                            if left_bb and left_txt:
+                                parts_in_order.append((left_txt, left_bb))
+                            if right_bb and right_txt:
+                                parts_in_order.append((right_txt, right_bb))
+
+                            rev_x = self.job.reading_direction in (READING_MODES["TB_RL"], READING_MODES["BT_RL"])
+                            if rev_x:
+                                parts_in_order = list(reversed(parts_in_order))
+
+                            for txt_part, bb_part in parts_in_order:
+                                record_views.append(RecordView(out_idx, txt_part, bb_part))
+                                lines.append(txt_part)
                                 out_idx += 1
                             continue
 
@@ -1639,8 +2244,9 @@ class OCRWorker(QThread):
         try:
             if not os.path.exists(self.job.recognition_model_path):
                 raise ValueError("Recognition model not found.")
-            if not os.path.exists(self.job.segmentation_model_path or ""):
-                raise ValueError("Baseline model not found.")
+            if getattr(self.job, "segmenter_mode", "blla") == "blla":
+                if not os.path.exists(self.job.segmentation_model_path or ""):
+                    raise ValueError("Baseline model not found.")
 
             self._ensure_models_loaded()
 
@@ -1693,7 +2299,7 @@ class ExportSelectFilesDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel(tr("export_select_files_hint")))
 
-        self.listw = QListWidget2()
+        self.listw = QListWidget()
         self.listw.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         for it in items:
@@ -1713,7 +2319,6 @@ class ExportSelectFilesDialog(QDialog):
         self.selected_paths = [p for p in paths if p]
         self.accept()
 
-
 # -----------------------------
 # MAIN WINDOW
 # -----------------------------
@@ -1724,6 +2329,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
 
         self.current_lang = "de"
+        self.log_lang = self._detect_system_lang()
         self.reading_direction = READING_MODES["TB_LR"]
         self.device_str = "cpu"
         self.show_overlay = True
@@ -1748,7 +2354,6 @@ class MainWindow(QMainWindow):
         self.canvas.rect_clicked.connect(self.on_rect_clicked)
         self.canvas.rect_changed.connect(self.on_overlay_rect_changed)
         self.canvas.files_dropped.connect(self.add_files_to_queue)
-        self.canvas.canvas_clicked.connect(self.on_canvas_click)
         self.canvas.box_drawn.connect(self.on_box_drawn)
 
         self.canvas.overlay_add_draw_requested.connect(self.on_canvas_add_box_draw)
@@ -1766,6 +2371,7 @@ class MainWindow(QMainWindow):
         self.queue_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_table.customContextMenuRequested.connect(self.queue_context_menu)
         self.queue_table.cellDoubleClicked.connect(self.on_queue_double_click)
+        self.queue_table.delete_pressed.connect(self._delete_queue_via_key)
         self.queue_table.files_dropped.connect(self.add_files_to_queue)
         self.queue_table.table_resized.connect(self._fit_queue_columns_exact)
 
@@ -1794,7 +2400,15 @@ class MainWindow(QMainWindow):
         self.list_lines.reorder_committed.connect(self.on_lines_reordered)
 
         self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)  # idle = normale Prozentanzeige
         self.progress_bar.setValue(0)
+
+        # Log (unter Queue)
+        self.log_visible = False
+        self.log_edit = QPlainTextEdit()
+        self.log_edit.setReadOnly(True)
+        self.log_edit.setMaximumBlockCount(5000)  # damit es nicht endlos wächst
+        self.log_edit.hide()
 
         self.lbl_queue = QLabel(self._tr("lbl_queue"))
         self.lbl_lines = QLabel(self._tr("lbl_lines"))
@@ -1816,6 +2430,11 @@ class MainWindow(QMainWindow):
         self.act_re_ocr = QAction(QIcon.fromTheme("view-refresh"), self._tr("act_re_ocr"), self)
         self.act_re_ocr.setToolTip(self._tr("act_re_ocr_tip"))
         self.act_re_ocr.triggered.connect(self.reprocess_selected)
+
+        self.act_toggle_log = QAction(QIcon.fromTheme("document-preview"), self._tr("log_toggle_show"), self)
+        self.act_toggle_log.setCheckable(True)
+        self.act_toggle_log.setChecked(False)
+        self.act_toggle_log.toggled.connect(self.toggle_log_area)
 
         # Undo / Redo actions
         self.act_undo = QAction(self._tr("act_undo"), self)
@@ -1840,6 +2459,7 @@ class MainWindow(QMainWindow):
         self._pending_box_for_row: Optional[int] = None
         self._pending_new_line_box: bool = False
 
+        self._auto_select_best_device()
         self._init_ui()
         self._init_menu()
         self.apply_theme("bright")
@@ -1850,6 +2470,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._refresh_hw_menu_availability)
 
         self.canvas.set_overlay_enabled(False)
+        self._log(self._tr_log("log_started"))
 
     # -----------------------------
     # Translation
@@ -1859,6 +2480,28 @@ class MainWindow(QMainWindow):
         if args:
             return txt.format(*args)
         return txt
+
+    def _detect_system_lang(self) -> str:
+        # e.g. "de_DE", "en_US", "fr_FR"
+        name = QLocale.system().name().lower()
+        if name.startswith("de"):
+            return "de"
+        if name.startswith("fr"):
+            return "fr"
+        return "en"
+
+    def _tr_in(self, lang: str, key: str, *args):
+        txt = TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, key)
+        if args:
+            return txt.format(*args)
+        return txt
+
+    def _tr_log(self, key: str, *args):
+        return self._tr_in(self.log_lang, key, *args)
+
+    def _delete_queue_via_key(self):
+        # Löscht selektierte Zeilen und setzt danach die Vorschau zurück
+        self.delete_selected_queue_items(reset_preview=True)
 
     # -----------------------------
     # Undo helpers (snapshots)
@@ -1931,6 +2574,16 @@ class MainWindow(QMainWindow):
         snap = task.redo_stack.pop()
         self._apply_snapshot(task, snap)
 
+    def _auto_select_best_device(self):
+        caps = self._gpu_capabilities()
+
+        # Priorität: CUDA (echtes CUDA build) > ROCm/HIP > MPS > CPU
+        for dev in ("cuda", "rocm", "mps", "cpu"):
+            ok, _ = caps.get(dev, (False, ""))
+            if ok:
+                self.device_str = dev
+                break
+
     # -----------------------------
     # UI
     # -----------------------------
@@ -1940,6 +2593,7 @@ class MainWindow(QMainWindow):
         self.toolbar.setMovable(False)
         self.toolbar.setFloatable(False)
         self.toolbar.setIconSize(QSize(20, 20))
+        self.toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
 
         self.toolbar.addAction(self.act_add)
         self.toolbar.addAction(self.act_clear)
@@ -1947,16 +2601,27 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(self.act_play)
         self.toolbar.addAction(self.act_stop)
         self.toolbar.addAction(self.act_re_ocr)
+
+        # NEU: Log Button direkt rechts neben Wiederholen
+        self.toolbar.addAction(self.act_toggle_log)
+
         self.toolbar.addSeparator()
         self.toolbar.addWidget(self.btn_rec_model)
         self.toolbar.addWidget(self.btn_seg_model)
 
+        self._make_toolbar_buttons_pushy()  # <--- NEU
+
         right = QVBoxLayout()
         right.addWidget(self.lbl_queue)
         right.addWidget(self.queue_table, 2)
+
+        # NEU: Logbereich unter der Queue
+        right.addWidget(self.log_edit, 1)
+
         right.addWidget(self.progress_bar)
         right.addWidget(self.lbl_lines)
         right.addWidget(self.list_lines, 3)
+
 
         right_widget = QLabel()
         right_widget.setLayout(right)
@@ -1974,7 +2639,26 @@ class MainWindow(QMainWindow):
         self.splitter.splitterMoved.connect(lambda *_: self._fit_queue_columns_exact())
         self.setCentralWidget(self.splitter)
 
+    def _make_toolbar_buttons_pushy(self):
+        # Alle QToolButtons, die QToolBar für QAction erstellt
+        for b in self.toolbar.findChildren(QToolButton):
+            b.setAutoRaise(False)  # wichtig: sonst wirkt es oft "flat"
+            b.setCursor(Qt.PointingHandCursor)
+
+        # Auch die Modell-Buttons
+        self.btn_rec_model.setCursor(Qt.PointingHandCursor)
+        self.btn_seg_model.setCursor(Qt.PointingHandCursor)
+
     def _init_menu(self):
+        lang_group = QActionGroup(self)
+        lang_group.setExclusive(True)
+
+        hw_group = QActionGroup(self)
+        hw_group.setExclusive(True)
+
+        read_group = QActionGroup(self)
+        read_group.setExclusive(True)
+
         menubar = self.menuBar()
 
         self.file_menu = menubar.addMenu(self._tr("menu_file"))
@@ -1982,6 +2666,11 @@ class MainWindow(QMainWindow):
 
         self.edit_menu.addAction(self.act_undo)
         self.edit_menu.addAction(self.act_redo)
+
+        self.edit_menu.addSeparator()
+        self.act_export_log = QAction(self._tr("menu_export_log"), self)
+        self.act_export_log.triggered.connect(self.export_log_txt)
+        self.edit_menu.addAction(self.act_export_log)
 
         self.act_add_files = QAction(self._tr("act_add_files"), self)
         self.act_add_files.triggered.connect(self.choose_files)
@@ -2010,11 +2699,13 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction(self.act_exit)
 
         self.models_menu = menubar.addMenu(self._tr("menu_models"))
-        self.act_rec = QAction(self._tr("dlg_choose_rec"), self)
+
+        # Menüeinträge zeigen immer den aktuell geladenen Namen
+        self.act_rec = QAction(f"{self._tr('dlg_choose_rec')}-", self)
         self.act_rec.triggered.connect(self.choose_rec_model)
         self.models_menu.addAction(self.act_rec)
 
-        self.act_seg = QAction(self._tr("dlg_choose_seg"), self)
+        self.act_seg = QAction(f"{self._tr('dlg_choose_seg')}-", self)
         self.act_seg.triggered.connect(self.choose_seg_model)
         self.models_menu.addAction(self.act_seg)
 
@@ -2090,6 +2781,9 @@ class MainWindow(QMainWindow):
         self.act_theme_dark.triggered.connect(lambda: self.apply_theme("dark"))
         self.theme_menu.addAction(self.act_theme_dark)
 
+        if self.device_str in self.hw_actions:
+            self.hw_actions[self.device_str].setChecked(True)
+
     # -----------------------------
     # Queue columns
     # -----------------------------
@@ -2144,6 +2838,29 @@ class MainWindow(QMainWindow):
         self.queue_hint.setVisible(empty)
 
     # -----------------------------
+    # Progress helpers
+    # -----------------------------
+    def _set_progress_busy(self):
+        self.progress_bar.setValue(0)
+        self.progress_bar.setRange(0, 0)  # busy animation
+
+    def _set_progress_idle(self, value: int = 0):
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(max(0, min(100, int(value))))
+
+    def on_progress_update(self, v: int):
+        v = max(0, min(100, int(v)))
+
+        # Solange wir in busy (0,0) sind und v noch 0 ist -> Animation bleibt
+        if self.progress_bar.minimum() == 0 and self.progress_bar.maximum() == 0:
+            if v > 0:
+                self.progress_bar.setRange(0, 100)  # sobald >0 -> normale Prozentanzeige
+            else:
+                return  # busy-mode ignoriert setValue sowieso; Animation bleibt
+
+        self.progress_bar.setValue(v)
+
+    # -----------------------------
     # Theme
     # -----------------------------
     def apply_theme(self, theme: str):
@@ -2173,27 +2890,78 @@ class MainWindow(QMainWindow):
         if theme == "dark":
             self.toolbar.setStyleSheet(
                 f"""
-                QToolButton {{
-                    color: {txt};
-                    border: 1px solid {border};
-                    border-radius: 6px;
-                    padding: 4px 6px;
-                    background: transparent;
+                QToolBar {{
+                    background: {conf["bg"]};
+                    spacing: 6px;
                 }}
-                QPushButton {{
-                    color: {txt};
-                    border: 1px solid {border};
+
+                QToolButton {{
+                    color: #000;
+                    border: 1px solid rgba(255,255,255,0.85);
                     border-radius: 6px;
                     padding: 4px 8px;
-                    background: transparent;
+                    background: rgba(255,255,255,0.92);
+                }}
+                QToolButton:hover {{
+                    background: rgba(255,255,255,0.98);
+                    border-color: rgba(255,255,255,0.98);
+                }}
+                QToolButton:pressed {{
+                    background: rgba(235,235,235,1.0);
+                }}
+                
+                QToolButton:checked {{
+                    background: rgba(200,230,255,1.0);
+                    border-color: rgba(120,190,255,1.0);
+                }}
+
+                QPushButton {{
+                    color: #000;
+                    border: 1px solid rgba(255,255,255,0.85);
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                    background: rgba(255,255,255,0.92);
+                }}
+                QPushButton:hover {{
+                    background: rgba(255,255,255,0.98);
+                    border-color: rgba(255,255,255,0.98);
+                }}
+                QPushButton:pressed {{
+                    background: rgba(235,235,235,1.0);
                 }}
                 """
             )
         else:
             self.toolbar.setStyleSheet(
                 """
-                QToolButton { border: none; padding: 4px 6px; }
-                QPushButton { border: 1px solid rgba(0,0,0,0.25); border-radius: 6px; padding: 4px 8px; }
+                QToolBar {
+                    spacing: 6px;
+                }
+
+                QToolButton, QPushButton {
+                    border: 1px solid rgba(0,0,0,0.25);
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                    background: rgba(255,255,255,0.90);
+                }
+
+                QToolButton:hover, QPushButton:hover {
+                    background: rgba(255,255,255,1.0);
+                    border-color: rgba(0,0,0,0.35);
+                }
+
+                /* Push/Release Feedback */
+                QToolButton:pressed, QPushButton:pressed {
+                    background: rgba(230,230,230,1.0);
+                    border-color: rgba(0,0,0,0.45);
+                    padding-left: 9px;   /* “depressed” effect */
+                    padding-top: 5px;
+                }
+
+                QToolButton:checked {
+                    background: rgba(42,130,218,0.20);
+                    border-color: rgba(42,130,218,0.45);
+                }
                 """
             )
 
@@ -2204,6 +2972,14 @@ class MainWindow(QMainWindow):
         self.current_lang = lang
         self.retranslate_ui()
         self._refresh_hw_menu_availability()
+
+    def _update_models_menu_labels(self):
+        rec_name = os.path.basename(self.model_path) if self.model_path else "-"
+        seg_name = os.path.basename(self.seg_model_path) if self.seg_model_path else "-"
+
+        # Reiter "Modelle" (Menü) aktualisieren
+        self.act_rec.setText(f"{self._tr('dlg_choose_rec')}{rec_name}")
+        self.act_seg.setText(f"{self._tr('dlg_choose_seg')}{seg_name}")
 
     def set_reading_direction(self, mode):
         self.reading_direction = mode
@@ -2220,14 +2996,14 @@ class MainWindow(QMainWindow):
         self.export_menu.setTitle(self._tr("menu_export"))
         self.reading_menu.setTitle(self._tr("menu_reading"))
 
+        self.act_export_log.setText(self._tr("menu_export_log"))
+
         self.act_undo.setText(self._tr("act_undo"))
         self.act_redo.setText(self._tr("act_redo"))
 
         self.act_add_files.setText(self._tr("act_add_files"))
         self.act_exit.setText(self._tr("menu_exit"))
         self.act_download.setText(self._tr("act_download_model"))
-        self.act_rec.setText(self._tr("dlg_choose_rec"))
-        self.act_seg.setText(self._tr("dlg_choose_seg"))
         self.act_overlay.setText(self._tr("act_overlay_show"))
         self.act_theme_bright.setText(self._tr("theme_bright"))
         self.act_theme_dark.setText(self._tr("theme_dark"))
@@ -2265,6 +3041,7 @@ class MainWindow(QMainWindow):
         self._retranslate_queue_rows()
         self._update_queue_hint()
         self.canvas._show_drop_hint()
+        self._update_models_menu_labels()
 
     def _retranslate_queue_rows(self):
         for it in self.queue_items:
@@ -2380,12 +3157,11 @@ class MainWindow(QMainWindow):
         if files:
             self.add_files_to_queue(files)
 
-    def on_canvas_click(self):
-        self.choose_files()
-
     def add_files_to_queue(self, paths: List[str]):
         added_any = False
         last_added = None
+        added_count = 0
+
         for p in paths:
             if not p or not os.path.exists(p):
                 continue
@@ -2394,9 +3170,13 @@ class MainWindow(QMainWindow):
             self._add_file_to_queue_single(p)
             added_any = True
             last_added = p
+            added_count += 1
 
         if added_any and last_added:
             self.preview_image(last_added)
+
+        if added_any:
+            self._log(self._tr_log("log_added_files", added_count))
 
         self._fit_queue_columns_exact()
         self._update_queue_hint()
@@ -2465,7 +3245,7 @@ class MainWindow(QMainWindow):
         elif action == delete_act:
             self.delete_selected_queue_items()
 
-    def delete_selected_queue_items(self):
+    def delete_selected_queue_items(self, reset_preview: bool = False):
         rows = sorted(set(index.row() for index in self.queue_table.selectedIndexes()), reverse=True)
         if not rows:
             return
@@ -2485,7 +3265,8 @@ class MainWindow(QMainWindow):
             self.canvas.clear_all()
             self.canvas.set_overlay_enabled(False)
             self.list_lines.clear()
-            self.progress_bar.setValue(0)
+            self._set_progress_idle(0)
+
         else:
             if current_preview_path and current_preview_path in removed_paths:
                 self.queue_table.selectRow(0)
@@ -2495,15 +3276,23 @@ class MainWindow(QMainWindow):
         self._fit_queue_columns_exact()
         self._update_queue_hint()
 
+        if reset_preview:
+            # Vorschau zurücksetzen wie beim Programmstart
+            self.canvas.clear_all()
+            self.canvas.set_overlay_enabled(False)
+            self.list_lines.clear()
+            self._set_progress_idle(0)
+
     def clear_queue(self):
         self.queue_items.clear()
         self.queue_table.setRowCount(0)
         self.canvas.clear_all()
         self.canvas.set_overlay_enabled(False)
         self.list_lines.clear()
-        self.progress_bar.setValue(0)
+        self._set_progress_idle(0)
         self._fit_queue_columns_exact()
         self._update_queue_hint()
+        self._log(self._tr_log("log_queue_cleared"))
 
     def preview_image(self, path: str):
         try:
@@ -2568,6 +3357,7 @@ class MainWindow(QMainWindow):
             name = os.path.basename(p)
             self.btn_rec_model.setText(f"{self._tr('dlg_choose_rec')}{name}")
             self.status_bar.showMessage(self._tr("msg_loaded_rec", name))
+            self._update_models_menu_labels()
 
     def choose_seg_model(self):
         p, _ = QFileDialog.getOpenFileName(self, self._tr("dlg_choose_seg"), "", self._tr("dlg_filter_model"))
@@ -2576,6 +3366,46 @@ class MainWindow(QMainWindow):
             name = os.path.basename(p)
             self.btn_seg_model.setText(f"{self._tr('dlg_choose_seg')}{name}")
             self.status_bar.showMessage(self._tr("msg_loaded_seg", name))
+            self._update_models_menu_labels()
+
+    def _log(self, msg: str):
+        ts = QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss")
+        line = f"[{ts}] {msg}"
+        try:
+            self.log_edit.appendPlainText(line)
+        except Exception:
+            pass
+
+    def toggle_log_area(self, checked: bool):
+        self.log_visible = bool(checked)
+        self.log_edit.setVisible(self.log_visible)
+
+        # Button-Text umschalten
+        if self.act_toggle_log.isChecked():
+            self.act_toggle_log.setText(self._tr("log_toggle_hide"))
+        else:
+            self.act_toggle_log.setText(self._tr("log_toggle_show"))
+
+    def export_log_txt(self):
+        base_dir = self.current_export_dir or os.getcwd()
+        dest_path, _ = QFileDialog.getSaveFileName(
+            self,
+            self._tr("dlg_save_log"),
+            os.path.join(base_dir, "ocr_log.txt"),
+            self._tr("dlg_filter_txt")
+        )
+        if not dest_path:
+            return
+        if not dest_path.lower().endswith(".txt"):
+            dest_path += ".txt"
+
+        try:
+            with open(dest_path, "w", encoding="utf-8") as f:
+                f.write(self.log_edit.toPlainText())
+            self._log(self._tr_log("log_export_log_done", dest_path))
+            self.status_bar.showMessage(self._tr("msg_exported", os.path.basename(dest_path)))
+        except Exception as e:
+            QMessageBox.critical(self, self._tr("err_title"), str(e))
 
     # -----------------------------
     # OCR controls
@@ -2584,6 +3414,19 @@ class MainWindow(QMainWindow):
         if not self.model_path or not os.path.exists(self.model_path):
             QMessageBox.critical(self, self._tr("err_title"), self._tr("warn_need_rec"))
             return
+        if getattr(self, "segmenter_mode", "blla") == "blla":
+            if not self.seg_model_path:
+                default_seg = os.path.join(os.path.dirname(__file__), "blla.mlmodel")
+                if os.path.exists(default_seg):
+                    self.seg_model_path = default_seg
+                    name = os.path.basename(self.seg_model_path)
+                    self.btn_seg_model.setText(f"{self._tr('dlg_choose_seg')}{name}")
+                    self.status_bar.showMessage(self._tr("msg_loaded_seg", name))
+                    self._update_models_menu_labels()
+
+            if not self.seg_model_path or not os.path.exists(self.seg_model_path):
+                QMessageBox.critical(self, self._tr("err_title"), self._tr("warn_need_seg"))
+                return
         if not self.seg_model_path or not os.path.exists(self.seg_model_path):
             QMessageBox.critical(self, self._tr("err_title"), self._tr("warn_need_seg"))
             return
@@ -2603,7 +3446,7 @@ class MainWindow(QMainWindow):
 
         self.act_play.setEnabled(False)
         self.act_stop.setEnabled(True)
-        self.progress_bar.setValue(0)
+        self._set_progress_busy()
 
         paths = [t.path for t in tasks]
         job = OCRJob(
@@ -2613,18 +3456,20 @@ class MainWindow(QMainWindow):
             device=self.device_str,
             reading_direction=self.reading_direction,
             export_format="pdf",
-            export_dir=self.current_export_dir
+            export_dir=self.current_export_dir,
+            segmenter_mode = "blla",
         )
 
         self.worker = OCRWorker(job)
         self.worker.file_started.connect(self.on_file_started)
         self.worker.file_done.connect(self.on_file_done)
         self.worker.file_error.connect(self.on_file_error)
-        self.worker.progress.connect(self.progress_bar.setValue)
+        self.worker.progress.connect(self.on_progress_update)
         self.worker.finished_batch.connect(self.on_batch_finished)
         self.worker.failed.connect(self.on_failed)
         self.worker.device_resolved.connect(self.on_device_resolved)
         self.worker.gpu_info.connect(self.on_gpu_info)
+        self._log(self._tr_log("log_ocr_started", len(paths), self.device_str, self.reading_direction))
         self.worker.start()
 
     def on_device_resolved(self, dev_str: str):
@@ -2650,12 +3495,13 @@ class MainWindow(QMainWindow):
             self._update_queue_row(path)
             self.list_lines.clear()
             self.canvas.set_overlay_enabled(False)
-            self.progress_bar.setValue(0)
+            self._set_progress_idle(0)
             self.start_ocr()
 
     def stop_ocr(self):
         if self.worker and self.worker.isRunning():
             self.worker.requestInterruption()
+            self._log(self._tr_log("log_stop_requested"))
             self.status_bar.showMessage(self._tr("msg_stopping"))
 
     def on_file_started(self, path):
@@ -2663,6 +3509,7 @@ class MainWindow(QMainWindow):
         if item:
             item.status = STATUS_PROCESSING
             self._update_queue_row(path)
+            self._log(self._tr_log("log_file_started", os.path.basename(path)))
 
     def on_file_done(self, path, text, kr_records, im, recs):
         item = next((i for i in self.queue_items if i.path == path), None)
@@ -2678,22 +3525,26 @@ class MainWindow(QMainWindow):
                 cur_path = self.queue_table.item(self.queue_table.currentRow(), 0).data(Qt.UserRole)
                 if cur_path == path:
                     self.load_results(path)
+            self._log(self._tr_log("log_file_done", os.path.basename(path), len(recs)))
 
     def on_file_error(self, path, msg):
         item = next((i for i in self.queue_items if i.path == path), None)
         if item:
             item.status = STATUS_ERROR
             self._update_queue_row(path)
+            self._log(self._tr_log("log_file_error", os.path.basename(path), msg))
 
     def on_batch_finished(self):
         self.act_play.setEnabled(True)
         self.act_stop.setEnabled(False)
         self.status_bar.showMessage(self._tr("msg_finished"))
+        self.progress_bar.setValue(100)
 
     def on_failed(self, msg):
         QMessageBox.critical(self, self._tr("err_title"), msg)
         self.act_play.setEnabled(True)
         self.act_stop.setEnabled(False)
+        self._set_progress_idle(0)
 
     def _update_queue_row(self, path):
         for row in range(self.queue_table.rowCount()):
@@ -2900,7 +3751,7 @@ class MainWindow(QMainWindow):
         new_text = "\n".join([r.text for r in recs]).strip()
         task.results = (new_text, kr_records, im, recs)
 
-        self.canvas.load_pil_image(im)
+        self.canvas.load_pil_image(im, preserve_view=True)
         self.canvas.set_overlay_enabled(task.status == STATUS_DONE)
         if self.show_overlay:
             self.canvas.draw_overlays(recs)
@@ -3142,11 +3993,13 @@ class MainWindow(QMainWindow):
 
         if len(self.queue_items) == 1:
             it = self.queue_items[0]
-            if it.status != STATUS_DONE or not it.results:
-                QMessageBox.warning(self, self._tr("warn_title"), self._tr("warn_select_done"))
+            if len(self.queue_items) == 1:
+                it = self.queue_items[0]
+                if it.status != STATUS_DONE or not it.results:
+                    QMessageBox.warning(self, self._tr("warn_title"), self._tr("warn_select_done"))
+                    return
+                self._export_single_interactive(it, fmt)
                 return
-            self._export_single_interactive(it, fmt)
-            return
 
         dlg = ExportModeDialog(self._tr, self)
         if dlg.exec() != QDialog.Accepted or dlg.choice is None:
@@ -3196,6 +4049,7 @@ class MainWindow(QMainWindow):
             dest_path += f".{fmt}"
 
         self._render_file(dest_path, fmt, item)
+        self._log(self._tr_log("log_export_single", item.display_name, dest_path))
         self.status_bar.showMessage(self._tr("msg_exported", os.path.basename(dest_path)))
 
     def _export_batch(self, items: List[TaskItem], fmt: str):
@@ -3210,6 +4064,8 @@ class MainWindow(QMainWindow):
             self._render_file(dest_path, fmt, it)
 
         self.status_bar.showMessage(self._tr("msg_exported", folder))
+        self._log(f"Export abgeschlossen: {len(items)} Datei(en) als {fmt} nach {folder}")
+
 
     def _render_file(self, path: str, fmt: str, item: TaskItem):
         if not item.results:
@@ -3285,18 +4141,20 @@ class MainWindow(QMainWindow):
     # Keyboard focus handling
     # -----------------------------
     def keyPressEvent(self, event):
-        if self.focusWidget() is self.list_lines and event.key() == Qt.Key_Delete:
-            self._delete_current_line_via_key()
+        if event.key() == Qt.Key_Space and not getattr(self.canvas, "_draw_mode", False):
+            self._space_panning = True
+            self.canvas.setDragMode(QGraphicsView.ScrollHandDrag)
             event.accept()
             return
-
-        if event.key() == Qt.Key_Delete and self.focusWidget() is self.queue_table:
-            self.delete_selected_queue_items()
-            event.accept()
-            return
-
         super().keyPressEvent(event)
 
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Space:
+            self._space_panning = False
+            self.canvas.setDragMode(QGraphicsView.NoDrag)
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
 
 def main():
     app = QApplication(sys.argv)
@@ -3304,7 +4162,6 @@ def main():
     w = MainWindow()
     w.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
