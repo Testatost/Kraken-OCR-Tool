@@ -17,7 +17,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QMessageBox,
-    QLabel, QPushButton, QProgressBar, QVBoxLayout,
+    QLabel, QWidget, QPushButton, QProgressBar, QVBoxLayout, QHBoxLayout,
     QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsSimpleTextItem, QSplitter, QStatusBar,
     QMenu, QTableWidget, QTableWidgetItem, QHeaderView, QToolBar,
@@ -36,10 +36,9 @@ from reportlab.lib.utils import ImageReader
 
 # Kraken & ML
 warnings.filterwarnings("ignore", message="Using legacy polygon extractor*", category=UserWarning)
-from kraken import blla, rpred, serialization, pageseg
+from kraken import blla, rpred, serialization, pageseg, binarization
 from kraken.lib import models, vgsl
 import torch
-
 
 # -----------------------------
 # CONSTANTS
@@ -101,6 +100,8 @@ TRANSLATIONS = {
         "menu_hw": "CPU/GPU",
         "menu_reading": "Leserichtung",
         "menu_appearance": "Erscheinungsbild",
+        "act_clear_rec": "Recognition-Modell entfernen",
+        "act_clear_seg": "Segmentierungs-Modell entfernen",
 
         "log_toggle_show": "Log",
         "log_toggle_hide": "Log",
@@ -134,7 +135,7 @@ TRANSLATIONS = {
         "act_download_model": "Modell herunterladen (Zenodo)",
         "act_delete": "Löschen",
         "act_rename": "Umbenennen...",
-        "act_clear_queue": "Queue leeren",
+        "act_clear_queue": "Wartebereich leeren",
         "act_start_ocr": "Start",
         "act_stop_ocr": "Stopp",
         "act_re_ocr": "Wiederholen",
@@ -165,14 +166,14 @@ TRANSLATIONS = {
         "warn_queue_empty": "Wartebereich ist leer oder alle Elemente wurden verarbeitet.",
         "warn_select_done": "Keine Datei(en) für erneutes OCRn geladen.",
         "warn_need_rec": "Bitte wählen Sie zuerst ein Format-Modell (Recognition) aus.",
-        "warn_need_seg": "Bitte wählen Sie zuerst ein Baseline-Modell aus.",
+        "warn_need_seg": "Bitte wählen Sie zuerst ein Segmentierungs-Modell aus.",
 
         "msg_stopping": "Breche ab...",
         "msg_finished": "Batch abgeschlossen.",
         "msg_device": "Gerät gesetzt auf: {}",
         "msg_exported": "Exportiert: {}",
         "msg_loaded_rec": "Format-Modell: {}",
-        "msg_loaded_seg": "Baseline-Modell: {}",
+        "msg_loaded_seg": "Segmentierungs-Modell: {}",
 
         "err_load": "Bild kann nicht geladen werden: {}",
 
@@ -182,7 +183,7 @@ TRANSLATIONS = {
         "dlg_load_img": "Bilder wählen",
         "dlg_filter_img": "Bilder (*.png *.jpg *.jpeg *.tif *.bmp *.webp)",
         "dlg_choose_rec": "Recognition-Modell: ",
-        "dlg_choose_seg": "Baseline-Modell: ",
+        "dlg_choose_seg": "Segmentierungs-Modell: ",
         "dlg_filter_model": "Modelle (*.mlmodel *.pt)",
 
         "reading_tb_lr": "Oben → Unten + Links → Rechts",
@@ -258,6 +259,8 @@ TRANSLATIONS = {
         "menu_hw": "CPU/GPU",
         "menu_reading": "Reading Direction",
         "menu_appearance": "Appearance",
+        "act_clear_rec": "Clear recognition model",
+        "act_clear_seg": "Clear segmentation model",
 
         "log_toggle_show": "Log",
         "log_toggle_hide": "Log",
@@ -322,14 +325,14 @@ TRANSLATIONS = {
         "warn_queue_empty": "Queue is empty or all items are processed.",
         "warn_select_done": "No file(s) loaded for re-OCR.",
         "warn_need_rec": "Please select a format model (recognition) first.",
-        "warn_need_seg": "Please select a baseline model first.",
+        "warn_need_seg": "Please select a segmentation model first.",
 
         "msg_stopping": "Stopping...",
         "msg_finished": "Batch finished.",
         "msg_device": "Device set to: {}",
         "msg_exported": "Exported: {}",
         "msg_loaded_rec": "Format model: {}",
-        "msg_loaded_seg": "Baseline model: {}",
+        "msg_loaded_seg": "Segmentation model: {}",
 
         "err_load": "Cannot load image: {}",
 
@@ -339,7 +342,7 @@ TRANSLATIONS = {
         "dlg_load_img": "Choose images",
         "dlg_filter_img": "Images (*.png *.jpg *.jpeg *.tif *.bmp *.webp)",
         "dlg_choose_rec": "recognition model: ",
-        "dlg_choose_seg": "baseline model: ",
+        "dlg_choose_seg": "segmentation model: ",
         "dlg_filter_model": "Models (*.mlmodel *.pt)",
 
         "reading_tb_lr": "Top → Bottom + Left → Right",
@@ -415,6 +418,8 @@ TRANSLATIONS = {
         "menu_hw": "CPU/GPU",
         "menu_reading": "Direction de lecture",
         "menu_appearance": "Apparence",
+        "act_clear_rec": "Retirer le modèle de reconnaissance",
+        "act_clear_seg": "Retirer le modèle de segmentation",
 
         "log_toggle_show": "Log",
         "log_toggle_hide": "Log",
@@ -479,14 +484,14 @@ TRANSLATIONS = {
         "warn_queue_empty": "La file d’attente est vide ou tous les éléments ont été traités.",
         "warn_select_done": "Aucun fichier chargé pour relancer l’OCR.",
         "warn_need_rec": "Veuillez d’abord sélectionner un modèle de format (reconnaissance).",
-        "warn_need_seg": "Veuillez d’abord sélectionner un modèle de baseline.",
+        "warn_need_seg": "Veuillez d’abord sélectionner un modèle de segmentation.",
 
         "msg_stopping": "Arrêt...",
         "msg_finished": "Traitement terminé.",
         "msg_device": "Appareil réglé sur: {}",
         "msg_exported": "Exporté: {}",
         "msg_loaded_rec": "Modèle de format: {}",
-        "msg_loaded_seg": "Modèle de baseline: {}",
+        "msg_loaded_seg": "Modèle de segmentation: {}",
 
         "err_load": "Impossible de charger l’image: {}",
 
@@ -496,7 +501,7 @@ TRANSLATIONS = {
         "dlg_load_img": "Choisir des images",
         "dlg_filter_img": "Images (*.png *.jpg *.jpeg *.tif *.bmp *.webp)",
         "dlg_choose_rec": "le modèle de reconnaissance: ",
-        "dlg_choose_seg": "le modèle de baseline: ",
+        "dlg_choose_seg": "le modèle de segmentation: ",
         "dlg_filter_model": "Modèles (*.mlmodel *.pt)",
 
         "reading_tb_lr": "Haut → Bas + Gauche → Droite",
@@ -563,6 +568,7 @@ TRANSLATIONS = {
 BBox = Tuple[int, int, int, int]
 Point = Tuple[float, float]
 
+
 # -----------------------------
 # DATA CLASSES
 # -----------------------------
@@ -572,7 +578,9 @@ class RecordView:
     text: str
     bbox: Optional[BBox]
 
+
 UndoSnapshot = Tuple[List[Tuple[str, Optional[BBox]]], int]
+
 
 @dataclass
 class TaskItem:
@@ -584,6 +592,7 @@ class TaskItem:
     undo_stack: List[UndoSnapshot] = field(default_factory=list)
     redo_stack: List[UndoSnapshot] = field(default_factory=list)
 
+
 @dataclass
 class OCRJob:
     input_paths: List[str]
@@ -594,6 +603,7 @@ class OCRJob:
     export_format: str
     export_dir: Optional[str]
     segmenter_mode: str = "blla"
+
 
 # -----------------------------
 # GEOMETRY & SORTING
@@ -664,6 +674,7 @@ def record_bbox(r: Any) -> Optional[Tuple[int, int, int, int]]:
             return x0, y0 - vpad, x1, y1 + vpad
     return None
 
+
 def baseline_length(bl) -> float:
     pts = _coerce_points(bl)
     if len(pts) < 2:
@@ -672,19 +683,29 @@ def baseline_length(bl) -> float:
     x2, y2 = pts[-1]
     return math.hypot(x2 - x1, y2 - y1)
 
+
 # Vertikale Separator-Records (Spaltentrenner)
-VSEP_RE = re.compile(r'^[\|\u2502\u2503]+$')  # | │ ┃
+VSEP_RE = re.compile(r'^[|│┃¦︱︳]+$')  # | │ ┃ ¦ ︱ ︳
+
 
 # Horizontale Separator-Records (Zeilentrenner)
-HSEP_RE = re.compile(r'^[_\-\u2500\u2501\u2504\u2505]{3,}$')  # ___ --- ─ ━ etc. (mind. 3)
+HSEP_RE = re.compile(r'^[_\-\u2500\u2501\u2504\u2505]{3,}$')  # _ - ─ ━ etc. (mind. 3)
 
-def sort_records_reading_order(records, image_width: int, image_height: int, reading_mode: int = READING_MODES["TB_LR"]):
 
+def sort_records_reading_order(records, image_width: int, image_height: int,
+                               reading_mode: int = READING_MODES["TB_LR"]):
     # ---------- helpers ----------
-    def cx(bb): return (bb[0] + bb[2]) / 2.0
-    def cy(bb): return (bb[1] + bb[3]) / 2.0
-    def bw(bb): return bb[2] - bb[0]
-    def bh(bb): return bb[3] - bb[1]
+    def cx(bb):
+        return (bb[0] + bb[2]) / 2.0
+
+    def cy(bb):
+        return (bb[1] + bb[3]) / 2.0
+
+    def bw(bb):
+        return bb[2] - bb[0]
+
+    def bh(bb):
+        return bb[3] - bb[1]
 
     def quant(vals, p):
         if not vals:
@@ -698,8 +719,8 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
         return vs[f] + (vs[c] - vs[f]) * (k - f)
 
     # Direction flags
-    rev_y = (reading_mode in (READING_MODES["BT_LR"], READING_MODES["BT_RL"]))     # bottom->top
-    rev_cols = (reading_mode in (READING_MODES["TB_RL"], READING_MODES["BT_RL"])) # columns right->left
+    rev_y = (reading_mode in (READING_MODES["BT_LR"], READING_MODES["BT_RL"]))  # bottom->top
+    rev_cols = (reading_mode in (READING_MODES["TB_RL"], READING_MODES["BT_RL"]))  # columns right->left
 
     W = max(1, int(image_width))
 
@@ -757,28 +778,28 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
         items.append((r, bb, dbb))
 
     # ---------- typical line height (deskewed) ----------
-    hs = [ (dbb[3]-dbb[1]) for _,_,dbb in items if (dbb[3]-dbb[1]) > 0 ]
-    med_h = sorted(hs)[len(hs)//2] if hs else 14.0
+    hs = [(dbb[3] - dbb[1]) for _, _, dbb in items if (dbb[3] - dbb[1]) > 0]
+    med_h = sorted(hs)[len(hs) // 2] if hs else 14.0
     MIN_H = max(10.0, 0.6 * med_h)
 
     def is_fullwidth(dbb):
-        return (dbb[2]-dbb[0]) >= 0.82 * W
+        return (dbb[2] - dbb[0]) >= 0.82 * W
 
     # body candidates
-    body = [(r, bb, dbb) for (r, bb, dbb) in items if (dbb[3]-dbb[1]) >= MIN_H and not is_fullwidth(dbb)]
+    body = [(r, bb, dbb) for (r, bb, dbb) in items if (dbb[3] - dbb[1]) >= MIN_H and not is_fullwidth(dbb)]
     if len(body) < 8:
         # fallback: deskewed y then x
         ordered = sorted(items, key=lambda x: (cy(x[2]), cx(x[2])), reverse=rev_y)
-        return [r for r,_,_ in ordered]
+        return [r for r, _, _ in ordered]
 
     # ---------- header/footer by y quantiles (deskewed) ----------
-    ys_top = [dbb[1] for _,_,dbb in body]
-    ys_bot = [dbb[3] for _,_,dbb in body]
+    ys_top = [dbb[1] for _, _, dbb in body]
+    ys_bot = [dbb[3] for _, _, dbb in body]
     body_top = quant(ys_top, 0.08)
     body_bot = quant(ys_bot, 0.92)
     if body_top is None or body_bot is None:
         ordered = sorted(items, key=lambda x: (cy(x[2]), cx(x[2])), reverse=rev_y)
-        return [r for r,_,_ in ordered]
+        return [r for r, _, _ in ordered]
 
     MARGIN_Y = max(10.0, 0.8 * med_h)
 
@@ -806,12 +827,11 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
         if not t:
             continue
         if VSEP_RE.match(t):
-            w_sep = (dbb[2]-dbb[0])
-            h_sep = (dbb[3]-dbb[1])
+            w_sep = (dbb[2] - dbb[0])
+            h_sep = (dbb[3] - dbb[1])
             # etwas weniger streng -> Separator wird eher erkannt
             if w_sep <= 0.05 * W and h_sep >= 1.8 * med_h:
                 sep_x.append(cx(dbb))
-
 
     sep_x.sort()
     # keep only separators that are reasonably distinct
@@ -822,7 +842,133 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
     sep_x = filtered
 
     # ---------- build columns ----------
-    mid_text = [(r, bb, dbb) for (r, bb, dbb) in midband if (dbb[3]-dbb[1]) >= MIN_H and not is_fullwidth(dbb)]
+    mid_text = [(r, bb, dbb) for (r, bb, dbb) in midband if (dbb[3] - dbb[1]) >= MIN_H and not is_fullwidth(dbb)]
+
+    # ==========================================================
+    # 2-COLUMN FALLBACK (wie alter Code) – nur wenn <=2 Spalten
+    # ==========================================================
+    def _estimate_strong_columns(mid_items):
+        """
+        Zählt 'echte' Spalten grob über x0-Cluster.
+        Gibt 1 / 2 / 3 (3 = 3 oder mehr) zurück.
+        """
+        if not mid_items:
+            return 1
+
+        xs = [it[2][0] for it in mid_items]  # dbb x0
+        if not xs:
+            return 1
+
+        # eher grob -> robust gegen Einrückungen
+        x_thr = max(70.0, 0.09 * W)
+        clusters = []  # {"x": mean, "n": count}
+
+        for x0 in sorted(xs):
+            placed = False
+            for c in clusters:
+                if abs(c["x"] - x0) <= x_thr:
+                    c["n"] += 1
+                    c["x"] = (c["x"] * 0.85) + (x0 * 0.15)
+                    placed = True
+                    break
+            if not placed:
+                clusters.append({"x": float(x0), "n": 1})
+
+        clusters.sort(key=lambda c: c["x"])
+
+        # "echte" Spalten müssen genug Items haben
+        # strong = wirklich dominant
+        min_items_strong = max(8, int(0.12 * len(mid_items)))
+        # weak = erlaubt auch kürzere Spalten (z.B. rechte Spalte weniger Inhalt)
+        min_items_weak = max(4, int(0.05 * len(mid_items)))
+
+        strong = [c for c in clusters if c["n"] >= min_items_strong]
+        weak = [c for c in clusters if c["n"] >= min_items_weak]
+
+        # Wenn wir 3 Cluster haben, die wirklich weit genug auseinander liegen -> 3 Spalten.
+        if len(weak) >= 3:
+            xs = [c["x"] for c in weak]
+            xs.sort()
+            gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
+            # mind. zwei deutliche Abstände -> 3 echte Spalten
+            big_gaps = sum(1 for g in gaps if g >= max(120.0, 0.18 * W))
+            if big_gaps >= 2:
+                return 3
+
+        if len(strong) <= 1:
+            return 1
+        if len(strong) == 2:
+            return 2
+        return 3
+
+    strong_cols = _estimate_strong_columns(mid_text)
+
+    if strong_cols <= 2 and len(sep_x) < 2:
+        mid = W / 2.0
+
+        # wie alter Code: finde ab welcher y es wirklich "zweispaltig" wird
+        ys = [it[2][1] for it in mid_text]  # dbb y0
+        if ys:
+            y_min, y_max = min(ys), max(ys)
+        else:
+            y_min, y_max = 0.0, float(image_height)
+
+        step = int(max(60.0, 4.0 * med_h))
+        threshold_y = y_max + 1.0  # fallback: alles "oben"
+
+        # "links/rechts aktiv" in einem Band?
+        for y0 in range(int(y_min), int(y_max), step):
+            y1 = y0 + step
+            left = 0
+            right = 0
+            for _, _, dbb in mid_text:
+                if y0 <= dbb[1] < y1:
+                    x_center = (dbb[0] + dbb[2]) / 2.0
+                    if x_center < mid:
+                        left += 1
+                    else:
+                        right += 1
+            if left >= 2 and right >= 2:
+                threshold_y = float(y0)
+                break
+
+        # Split: "top" (Einleitung/Überschrift) + Spaltenbereich
+        top_mid = []
+        left_col = []
+        right_col = []
+
+        for r, bb, dbb in midband:
+            if is_fullwidth(dbb):
+                # volle Breite -> gehört ins "top" bzw. bleibt im Flow oben
+                top_mid.append((r, bb, dbb))
+                continue
+
+            if dbb[1] < threshold_y:
+                top_mid.append((r, bb, dbb))
+            else:
+                x_center = (dbb[0] + dbb[2]) / 2.0
+                if x_center < mid:
+                    left_col.append((r, bb, dbb))
+                else:
+                    right_col.append((r, bb, dbb))
+
+        # sortieren: wie vorher (rev_y berücksichtigt)
+        top_mid_sorted = sort_y_then_x(top_mid)
+        left_sorted = sort_y_then_x(left_col)
+        right_sorted = sort_y_then_x(right_col)
+
+        # Leserichtung: RL -> rechte Spalte zuerst
+        core = []
+        core.extend(top_mid_sorted)
+
+        if rev_cols:
+            core.extend(right_sorted)
+            core.extend(left_sorted)
+        else:
+            core.extend(left_sorted)
+            core.extend(right_sorted)
+
+        return [r for r, _, _ in header_sorted] + [r for r, _, _ in core] + [r for r, _, _ in footer_sorted]
 
     # If we have explicit separators, use them as boundaries:
     # columns = count(separators) + 1
@@ -839,12 +985,12 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
             # Wenn eine Box komplett links von der Trennlinie liegt -> links
             # (wichtig für rechtsbündige kurze Zeilen wie "w. Koehler.")
             for i, b in enumerate(bounds):
-                if dbb[2] <= b - GUTTER:   # right edge klar links
+                if dbb[2] <= b - GUTTER:  # right edge klar links
                     return i
 
             # Wenn komplett rechts -> rechts
             for i, b in enumerate(bounds):
-                if dbb[0] >= b + GUTTER:   # left edge klar rechts
+                if dbb[0] >= b + GUTTER:  # left edge klar rechts
                     continue
                 # überlappt GUTTER -> entscheide über Center
                 break
@@ -863,8 +1009,8 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
 
     else:
         # No explicit separators: cluster by left edge x0 (deskewed), but robust against skew/indent
-        x_threshold = max(55.0, 0.07 * W)      # a bit larger -> skew tolerant
-        indent_dx   = max(30.0, 0.05 * W)      # merge indents more aggressively
+        x_threshold = max(55.0, 0.07 * W)  # a bit larger -> skew tolerant
+        indent_dx = max(30.0, 0.05 * W)  # merge indents more aggressively
         min_items_for_real_col = max(10, int(0.12 * len(mid_text)))  # require stronger evidence
 
         clusters = []  # {"x": mean_x0, "items":[...]}
@@ -881,6 +1027,7 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
                 clusters.append({"x": float(x0), "items": [(r, bb, dbb)]})
 
         clusters.sort(key=lambda c: c["x"])
+
         # --- NEW: merge "indent/center" clusters by strong horizontal overlap ---
         def q(vals, p):
             if not vals:
@@ -894,7 +1041,7 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
             return vs[f] + (vs[c] - vs[f]) * (k - f)
 
         def span(c):
-            lefts = [it[2][0] for it in c["items"]]   # dbb x0
+            lefts = [it[2][0] for it in c["items"]]  # dbb x0
             rights = [it[2][2] for it in c["items"]]  # dbb x1
             l = q(lefts, 0.20) if lefts else c["x"]
             r = q(rights, 0.80) if rights else c["x"]
@@ -977,11 +1124,11 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
         if len(merged) <= 1:
             # single column -> just y then x
             core = sort_y_then_x(midband)
-            return [r for r,_,_ in header_sorted] + [r for r,_,_ in core] + [r for r,_,_ in footer_sorted]
+            return [r for r, _, _ in header_sorted] + [r for r, _, _ in core] + [r for r, _, _ in footer_sorted]
 
         # build bounds between cluster starts
         col_starts = [c["x"] for c in merged]
-        bounds = [(col_starts[i] + col_starts[i+1]) / 2.0 for i in range(len(col_starts) - 1)]
+        bounds = [(col_starts[i] + col_starts[i + 1]) / 2.0 for i in range(len(col_starts) - 1)]
 
         def col_index_for(dbb):
             x = dbb[0]
@@ -1057,7 +1204,7 @@ def sort_records_reading_order(records, image_width: int, image_height: int, rea
     for ci in col_order:
         core.extend(cols[ci])
 
-    return [r for r,_,_ in header_sorted] + [r for r,_,_ in core] + [r for r,_,_ in footer_sorted]
+    return [r for r, _, _ in header_sorted] + [r for r, _, _ in core] + [r for r, _, _ in footer_sorted]
 
 
 def clamp_bbox(bb: Tuple[int, int, int, int], w: int, h: int) -> Optional[Tuple[int, int, int, int]]:
@@ -1117,15 +1264,16 @@ def is_same_visual_row(a: RecordView, b: RecordView, page_width: int) -> bool:
     textish_a = aw >= int(0.30 * w)
     textish_b = bw >= int(0.30 * w)
 
-    a_left = (ax0 < mid and ax1 <= mid + int(0.05*w))
-    b_right = (bx1 > mid and bx0 >= mid - int(0.05*w))
-    b_left = (bx0 < mid and bx1 <= mid + int(0.05*w))
-    a_right = (ax1 > mid and ax0 >= mid - int(0.05*w))
+    a_left = (ax0 < mid and ax1 <= mid + int(0.05 * w))
+    b_right = (bx1 > mid and bx0 >= mid - int(0.05 * w))
+    b_left = (bx0 < mid and bx1 <= mid + int(0.05 * w))
+    a_right = (ax1 > mid and ax0 >= mid - int(0.05 * w))
 
     if textish_a and textish_b and ((a_left and b_right) or (b_left and a_right)):
         return False
 
     return True
+
 
 def group_rows_by_y(records: List[RecordView], page_width: int):
     recs = [r for r in records if r.bbox]
@@ -1136,7 +1284,7 @@ def group_rows_by_y(records: List[RecordView], page_width: int):
 
     # robuste Zeilenhöhe
     hs = sorted([(rv.bbox[3] - rv.bbox[1]) for rv in recs if (rv.bbox[3] - rv.bbox[1]) > 0])
-    med_h = hs[len(hs)//2] if hs else 14
+    med_h = hs[len(hs) // 2] if hs else 14
 
     # enger = "Abstand geringer" (striktere Gruppierung)
     y_tol = max(10, int(0.45 * med_h))
@@ -1202,6 +1350,40 @@ def group_rows_by_y(records: List[RecordView], page_width: int):
         row.sort(key=lambda rv: rv.bbox[0])
     return rows
 
+def table_to_rows_two_columns(records: List[RecordView], page_width: int) -> List[List[str]]:
+    """
+    Erzwingt exakt 2 Spalten anhand Seitenmitte.
+    Verhindert "3. Spalte" durch Einrückungen/Ausreißer.
+    """
+    mid = max(1, int(page_width)) // 2
+    rows = group_rows_by_y(records, page_width)
+
+    grid: List[List[str]] = []
+    for row in rows:
+        left_parts = []
+        right_parts = []
+        for rv in row:
+            if not rv.bbox:
+                continue
+            x0 = rv.bbox[0]
+            if x0 < mid:
+                left_parts.append(rv.text)
+            else:
+                right_parts.append(rv.text)
+
+        grid.append([" ".join(left_parts).strip(), " ".join(right_parts).strip()])
+
+    # Optional: kurze Restfragmente an vorige Zeile hängen
+    merged: List[List[str]] = []
+    for r in grid:
+        if merged:
+            if (not r[0]) and r[1] and len(r[1]) <= 20 and (not merged[-1][1].endswith(".")):
+                merged[-1][1] = (merged[-1][1] + " " + r[1]).strip()
+                continue
+        merged.append(r)
+
+    return merged
+
 def table_to_rows(records: List[RecordView], page_width: int) -> List[List[str]]:
     # Wenn der Text explizite Trenner enthält, nutze die als "harte" Spalten,
     # statt aus BBox-Positionen eine Tabelle zu raten.
@@ -1245,6 +1427,14 @@ def table_to_rows(records: List[RecordView], page_width: int) -> List[List[str]]
     rows = group_rows_by_y(records, page_width)
     cols = cluster_columns(records)
 
+    # Wenn cluster_columns "3 Spalten" liefert, aber wir eigentlich 2-Spalten-Layout haben,
+    # erzwinge 2 Spalten wie im alten Code:
+    if len(cols) >= 3:
+        # Heuristik: wenn zwei größte Cluster dominieren -> 2 Spalten erzwingen
+        sizes = sorted([len(c) for c in cols], reverse=True)
+        if sizes and (sizes[0] + (sizes[1] if len(sizes) > 1 else 0)) >= 0.80 * sum(sizes):
+            return table_to_rows_two_columns(records, page_width)
+
     col_x = []
     for col in cols:
         xs = [rv.bbox[0] for rv in col if rv.bbox]
@@ -1275,6 +1465,7 @@ def table_to_rows(records: List[RecordView], page_width: int) -> List[List[str]]
                 line[c] = rv.text
         grid.append(line)
     return grid
+
 
 # -----------------------------
 # RESIZABLE / MOVABLE RECT ITEM
@@ -1874,7 +2065,6 @@ class ImageCanvas(QGraphicsView):
         self._drop_text.setDefaultTextColor(c)
         self._center_drop_hint_in_view()
 
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if not self._pixmap_item:
@@ -2083,13 +2273,14 @@ class OCRWorker(QThread):
             self._emit_gpu_info(self._device)
         if self._rec_model is None:
             self._rec_model = self._load_rec_model(self.job.recognition_model_path, self._device)
-        if getattr(self.job, "segmenter_mode", "blla") == "blla":
+        mode = getattr(self.job, "segmenter_mode", "blla")
+        if mode == "blla":
             if self._seg_model is None:
                 if not self.job.segmentation_model_path:
                     raise ValueError("No baseline model selected.")
                 self._seg_model = self._load_seg_model(self.job.segmentation_model_path, self._device)
         else:
-            self._seg_model = None  # sicherheitshalber
+            self._seg_model = None
 
     @staticmethod
     def _seg_expected_lines(seg: Any) -> Optional[int]:
@@ -2127,7 +2318,11 @@ class OCRWorker(QThread):
 
             # --- segmentation ---
             if getattr(self.job, "segmenter_mode", "blla") == "pageseg":
-                seg = pageseg.segment(im)
+                # pageseg braucht ein bi-level Bild (Mode "1")
+                bw = binarization.nlbin(im)  # empfohlen für legacy pageseg
+                if getattr(bw, "mode", None) != "1":
+                    bw = bw.convert("1")
+                seg = pageseg.segment(bw)
             else:
                 seg = blla.segment(im, model=self._seg_model)
 
@@ -2207,6 +2402,12 @@ class OCRWorker(QThread):
                     w = x1 - x0
                     if w > int(page_w * 0.80) and not _is_header_like(bb, txt, page_w, page_h):
                         parts = two_col_splitter.split(txt, maxsplit=1)
+                        xs = []
+                        for rr in kr_sorted:
+                            bb2 = record_bbox(rr)
+                            if bb2:
+                                xs.append(bb2[0])
+                        xs.sort()
                         if len(parts) == 2:
                             left_txt, right_txt = map(str.strip, parts)
                             mid = page_w // 2
@@ -2244,7 +2445,8 @@ class OCRWorker(QThread):
         try:
             if not os.path.exists(self.job.recognition_model_path):
                 raise ValueError("Recognition model not found.")
-            if getattr(self.job, "segmenter_mode", "blla") == "blla":
+            mode = getattr(self.job, "segmenter_mode", "blla")
+            if mode == "blla":
                 if not os.path.exists(self.job.segmentation_model_path or ""):
                     raise ValueError("Baseline model not found.")
 
@@ -2319,6 +2521,7 @@ class ExportSelectFilesDialog(QDialog):
         self.selected_paths = [p for p in paths if p]
         self.accept()
 
+
 # -----------------------------
 # MAIN WINDOW
 # -----------------------------
@@ -2337,6 +2540,7 @@ class MainWindow(QMainWindow):
         self.seg_model_path = ""
         self.current_export_dir = ""
         self.current_theme = "bright"
+        self.current_segmenter_mode = "blla"
 
         # queue columns dynamic ratio
         self.queue_col_ratio = 0.75
@@ -2606,10 +2810,40 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(self.act_toggle_log)
 
         self.toolbar.addSeparator()
-        self.toolbar.addWidget(self.btn_rec_model)
-        self.toolbar.addWidget(self.btn_seg_model)
 
-        self._make_toolbar_buttons_pushy()  # <--- NEU
+        # --- Rec model widget (button + X) ---
+        rec_wrap = QWidget()
+        rec_lay = QHBoxLayout(rec_wrap)
+        rec_lay.setContentsMargins(0, 0, 0, 0)
+        rec_lay.setSpacing(2)
+        rec_lay.addWidget(self.btn_rec_model)
+
+        self.btn_rec_clear = QToolButton()
+        self.btn_rec_clear.setText("×")
+        self.btn_rec_clear.setToolTip(self._tr("act_clear_rec"))
+        self.btn_rec_clear.setCursor(Qt.PointingHandCursor)
+        self.btn_rec_clear.clicked.connect(self.clear_rec_model)
+        rec_lay.addWidget(self.btn_rec_clear)
+
+        # --- Seg model widget (button + X) ---
+        seg_wrap = QWidget()
+        seg_lay = QHBoxLayout(seg_wrap)
+        seg_lay.setContentsMargins(0, 0, 0, 0)
+        seg_lay.setSpacing(2)
+        seg_lay.addWidget(self.btn_seg_model)
+
+        self.btn_seg_clear = QToolButton()
+        self.btn_seg_clear.setText("×")
+        self.btn_seg_clear.setToolTip(self._tr("act_clear_seg"))
+        self.btn_seg_clear.setCursor(Qt.PointingHandCursor)
+        self.btn_seg_clear.clicked.connect(self.clear_seg_model)
+        seg_lay.addWidget(self.btn_seg_clear)
+
+        self.toolbar.addWidget(rec_wrap)
+        self.toolbar.addWidget(seg_wrap)
+
+        self._make_toolbar_buttons_pushy()
+        self._update_model_clear_buttons()
 
         right = QVBoxLayout()
         right.addWidget(self.lbl_queue)
@@ -2622,14 +2856,13 @@ class MainWindow(QMainWindow):
         right.addWidget(self.lbl_lines)
         right.addWidget(self.list_lines, 3)
 
-
-        right_widget = QLabel()
+        right_widget = QWidget()
         right_widget.setLayout(right)
 
         left_layout = QVBoxLayout()
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.addWidget(self.canvas)
-        left_widget = QLabel()
+        left_widget = QWidget()
         left_widget.setLayout(left_layout)
 
         self.splitter = QSplitter(Qt.Horizontal)
@@ -2708,6 +2941,18 @@ class MainWindow(QMainWindow):
         self.act_seg = QAction(f"{self._tr('dlg_choose_seg')}-", self)
         self.act_seg.triggered.connect(self.choose_seg_model)
         self.models_menu.addAction(self.act_seg)
+        self.models_menu.addSeparator()
+
+        # --- Clear actions in Models menu ---
+        self.act_clear_rec = QAction(self._tr("act_clear_rec"), self)
+        self.act_clear_rec.setToolTip(self._tr("act_clear_rec"))
+        self.act_clear_rec.triggered.connect(self.clear_rec_model)
+        self.models_menu.addAction(self.act_clear_rec)
+
+        self.act_clear_seg = QAction(self._tr("act_clear_seg"), self)
+        self.act_clear_seg.setToolTip(self._tr("act_clear_seg"))
+        self.act_clear_seg.triggered.connect(self.clear_seg_model)
+        self.models_menu.addAction(self.act_clear_seg)
 
         self.models_menu.addSeparator()
         self.act_download = QAction(self._tr("act_download_model"), self)
@@ -2909,7 +3154,7 @@ class MainWindow(QMainWindow):
                 QToolButton:pressed {{
                     background: rgba(235,235,235,1.0);
                 }}
-                
+
                 QToolButton:checked {{
                     background: rgba(200,230,255,1.0);
                     border-color: rgba(120,190,255,1.0);
@@ -3042,6 +3287,24 @@ class MainWindow(QMainWindow):
         self._update_queue_hint()
         self.canvas._show_drop_hint()
         self._update_models_menu_labels()
+        self._update_model_clear_buttons()
+        # Models menu actions
+        self.act_rec.setText(
+            f"{self._tr('dlg_choose_rec')}{os.path.basename(self.model_path) if self.model_path else '-'}")
+        self.act_seg.setText(
+            f"{self._tr('dlg_choose_seg')}{os.path.basename(self.seg_model_path) if self.seg_model_path else '-'}")
+
+        if hasattr(self, "act_clear_rec"):
+            self.act_clear_rec.setText(self._tr("act_clear_rec"))
+            self.act_clear_rec.setToolTip(self._tr("act_clear_rec"))
+        if hasattr(self, "act_clear_seg"):
+            self.act_clear_seg.setText(self._tr("act_clear_seg"))
+            self.act_clear_seg.setToolTip(self._tr("act_clear_seg"))
+
+        if hasattr(self, "btn_rec_clear"):
+            self.btn_rec_clear.setToolTip(self._tr("act_clear_rec"))
+        if hasattr(self, "btn_seg_clear"):
+            self.btn_seg_clear.setToolTip(self._tr("act_clear_seg"))
 
     def _retranslate_queue_rows(self):
         for it in self.queue_items:
@@ -3358,6 +3621,7 @@ class MainWindow(QMainWindow):
             self.btn_rec_model.setText(f"{self._tr('dlg_choose_rec')}{name}")
             self.status_bar.showMessage(self._tr("msg_loaded_rec", name))
             self._update_models_menu_labels()
+            self._update_model_clear_buttons()
 
     def choose_seg_model(self):
         p, _ = QFileDialog.getOpenFileName(self, self._tr("dlg_choose_seg"), "", self._tr("dlg_filter_model"))
@@ -3367,6 +3631,35 @@ class MainWindow(QMainWindow):
             self.btn_seg_model.setText(f"{self._tr('dlg_choose_seg')}{name}")
             self.status_bar.showMessage(self._tr("msg_loaded_seg", name))
             self._update_models_menu_labels()
+            self._update_model_clear_buttons()
+
+    def _update_model_clear_buttons(self):
+        has_rec = bool(self.model_path)
+        has_seg = bool(self.seg_model_path)
+
+        if hasattr(self, "btn_rec_clear"):
+            self.btn_rec_clear.setEnabled(has_rec)
+        if hasattr(self, "btn_seg_clear"):
+            self.btn_seg_clear.setEnabled(has_seg)
+
+        if hasattr(self, "act_clear_rec"):
+            self.act_clear_rec.setEnabled(has_rec)
+        if hasattr(self, "act_clear_seg"):
+            self.act_clear_seg.setEnabled(has_seg)
+
+    def clear_rec_model(self):
+        self.model_path = ""
+        self.btn_rec_model.setText(f"{self._tr('dlg_choose_rec')}-")
+        self.status_bar.showMessage(self._tr("msg_loaded_rec", "-"))
+        self._update_models_menu_labels()
+        self._update_model_clear_buttons()
+
+    def clear_seg_model(self):
+        self.seg_model_path = ""
+        self.btn_seg_model.setText(f"{self._tr('dlg_choose_seg')}-")
+        self.status_bar.showMessage(self._tr("msg_loaded_seg", "-"))
+        self._update_models_menu_labels()
+        self._update_model_clear_buttons()
 
     def _log(self, msg: str):
         ts = QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss")
@@ -3414,22 +3707,22 @@ class MainWindow(QMainWindow):
         if not self.model_path or not os.path.exists(self.model_path):
             QMessageBox.critical(self, self._tr("err_title"), self._tr("warn_need_rec"))
             return
-        if getattr(self, "segmenter_mode", "blla") == "blla":
-            if not self.seg_model_path:
-                default_seg = os.path.join(os.path.dirname(__file__), "blla.mlmodel")
-                if os.path.exists(default_seg):
-                    self.seg_model_path = default_seg
-                    name = os.path.basename(self.seg_model_path)
-                    self.btn_seg_model.setText(f"{self._tr('dlg_choose_seg')}{name}")
-                    self.status_bar.showMessage(self._tr("msg_loaded_seg", name))
-                    self._update_models_menu_labels()
+        # NEW: segmentation optional -> fallback to legacy pageseg if not provided
+        use_pageseg = (not self.seg_model_path) or (not os.path.exists(self.seg_model_path))
 
-            if not self.seg_model_path or not os.path.exists(self.seg_model_path):
-                QMessageBox.critical(self, self._tr("err_title"), self._tr("warn_need_seg"))
-                return
-        if not self.seg_model_path or not os.path.exists(self.seg_model_path):
-            QMessageBox.critical(self, self._tr("err_title"), self._tr("warn_need_seg"))
-            return
+        if use_pageseg:
+            default_seg = os.path.join(os.path.dirname(__file__), "blla.mlmodel")
+            if os.path.exists(default_seg):
+                self.seg_model_path = default_seg
+                use_pageseg = False
+                name = os.path.basename(self.seg_model_path)
+                self.btn_seg_model.setText(f"{self._tr('dlg_choose_seg')}{name}")
+                self.status_bar.showMessage(self._tr("msg_loaded_seg", name))
+                self._update_models_menu_labels()
+                self._update_model_clear_buttons()
+
+        segmenter_mode = "pageseg" if use_pageseg else "blla"
+        self.current_segmenter_mode = segmenter_mode
 
         tasks = [i for i in self.queue_items if i.status == STATUS_WAITING]
         if not tasks:
@@ -3452,12 +3745,12 @@ class MainWindow(QMainWindow):
         job = OCRJob(
             input_paths=paths,
             recognition_model_path=self.model_path,
-            segmentation_model_path=self.seg_model_path,
+            segmentation_model_path=None if use_pageseg else self.seg_model_path,
             device=self.device_str,
             reading_direction=self.reading_direction,
             export_format="pdf",
             export_dir=self.current_export_dir,
-            segmenter_mode = "blla",
+            segmenter_mode=segmenter_mode,
         )
 
         self.worker = OCRWorker(job)
@@ -3469,14 +3762,15 @@ class MainWindow(QMainWindow):
         self.worker.failed.connect(self.on_failed)
         self.worker.device_resolved.connect(self.on_device_resolved)
         self.worker.gpu_info.connect(self.on_gpu_info)
-        self._log(self._tr_log("log_ocr_started", len(paths), self.device_str, self.reading_direction))
+        self._log(self._tr_log("log_ocr_started", len(paths), self.device_str,
+                               self.reading_direction) + f", Seg={segmenter_mode}")
         self.worker.start()
 
     def on_device_resolved(self, dev_str: str):
-        self.status_bar.showMessage(self._tr("msg_using_device", dev_str))
+        self.status_bar.showMessage(self._tr("msg_using_device", dev_str) + f" | Seg={self.current_segmenter_mode}")
 
     def on_gpu_info(self, info: str):
-        self.status_bar.showMessage(self._tr("msg_detected_gpu", info))
+        self.status_bar.showMessage(self._tr("msg_detected_gpu", info) + f" | Seg={self.current_segmenter_mode}")
 
     def reprocess_selected(self):
         if self.queue_table.currentRow() < 0:
@@ -3917,7 +4211,8 @@ class MainWindow(QMainWindow):
             self._pending_box_for_row = None
 
             # Optional: ask for text (optional) – user can also just edit in list afterwards.
-            new_txt, ok = QInputDialog.getText(self, self._tr("new_line_from_box_title"), self._tr("new_line_from_box_label"))
+            new_txt, ok = QInputDialog.getText(self, self._tr("new_line_from_box_title"),
+                                               self._tr("new_line_from_box_label"))
             if not ok:
                 new_txt = ""
             new_txt = (new_txt or "").strip()
@@ -4066,7 +4361,6 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(self._tr("msg_exported", folder))
         self._log(f"Export abgeschlossen: {len(items)} Datei(en) als {fmt} nach {folder}")
 
-
     def _render_file(self, path: str, fmt: str, item: TaskItem):
         if not item.results:
             return
@@ -4156,12 +4450,14 @@ class MainWindow(QMainWindow):
             return
         super().keyReleaseEvent(event)
 
+
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     w = MainWindow()
     w.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
